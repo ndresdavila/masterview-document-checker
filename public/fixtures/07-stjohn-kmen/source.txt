@@ -1,0 +1,6 @@
+﻿week=Semana 26
+mv=MV 1 ST. JOHN
+shipper=Shipper 2 K'MEN GRANOS PREMIUM
+booking=Booking 1 ZIMUGYL808572
+proforma_src=PROFORMA MASTERVIEW K MEN GRANOS LOTE 004.xls
+hbl_src=HBL DRAFT - ULGO26US00324.pdf

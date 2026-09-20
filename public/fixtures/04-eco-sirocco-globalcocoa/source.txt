@@ -1,0 +1,6 @@
+﻿week=Semana 10
+mv=MV 3 ECO SIROCCO
+shipper=Shipper 1 GLOBAL COCOA
+booking=Booking 1 GYEG04237300
+proforma_src=Masterview - FORMATO PROFORMA BKG GYEG04237300 LOTE 011.xls
+hbl_src=HBL DRAFT - ULGO26US00297.pdf

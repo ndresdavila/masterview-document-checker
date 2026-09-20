@@ -1,0 +1,6 @@
+﻿week=SEMANA 37
+mv=MV 2 ST. JOHN
+shipper=Shipper 3 GLOBAL COCOA
+booking=Booking 1 ZIMUGYL810283
+proforma_src=Masterview - FORMATO PROFORMA LOTE 058.xls
+hbl_src=HBL DRAFT -  ULGO26US00371.pdf

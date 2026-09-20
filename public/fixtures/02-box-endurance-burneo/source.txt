@@ -1,0 +1,6 @@
+﻿week=Semana 08
+mv=MV 1 BOX ENDURANCE
+shipper=Shipper 1 BURNEOEXPORT
+booking=Booking 1 ZIMUGYL805345
+proforma_src=PROFORMA MASTERVIEW BURNEOEXPORT LOTE 438.xls
+hbl_src=HBL DRAFT - ULGO26US00293.pdf

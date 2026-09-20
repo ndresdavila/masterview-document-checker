@@ -1,0 +1,6 @@
+﻿week=Semana 34
+mv=MV 1 CMA CGM FORT ST LOUIS
+shipper=Shipper 2 GLOBAL COCOA
+booking=Booking 3 6463708390
+proforma_src=Masterview - FORMATO PROFORMA BKG GYEG12922300 LOTE 050.xls
+hbl_src=HBL DRAFT -  ULGO26US00345.pdf

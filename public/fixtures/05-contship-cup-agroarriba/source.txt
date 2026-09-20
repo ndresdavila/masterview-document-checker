@@ -1,0 +1,6 @@
+﻿week=Semana 14
+mv=MV 1 CONTSHIP CUP
+shipper=Shipper 1 AGROARRIBA
+booking=Booking 1 ZIMUGYL806293
+proforma_src=PROFORMA - Lote 330 - Itochu.xls
+hbl_src=HBL DRAFT -  ULGO26US00309.pdf

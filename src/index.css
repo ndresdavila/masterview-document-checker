@@ -1,0 +1,38 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: Arial, Helvetica, sans-serif;
+  --font-mono: Arial, Helvetica, sans-serif;
+  --color-paper: #f4f4f4;
+  --color-paper-2: #e8e8e8;
+  --color-ink: #1a1a1a;
+  --color-muted: #6b6b6b;
+  --color-navy: #1a1a1a;
+  --color-sea: #444444;
+  --color-ok: #1f6b3a;
+  --color-ok-soft: #e8f2eb;
+  --color-bad: #9b2c2c;
+  --color-bad-soft: #f4e8e8;
+  --color-warn: #8a6a12;
+  --color-warn-soft: #f3eedc;
+  --color-info: #2c4a7a;
+  --color-info-soft: #e6ecf4;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  color: var(--color-ink);
+  background: #f4f4f4;
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+.paper-card {
+  background: #ffffff;
+  border: 1px solid #d6d6d6;
+}

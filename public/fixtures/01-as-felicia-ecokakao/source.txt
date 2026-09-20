@@ -1,0 +1,6 @@
+﻿week=Semana 02
+mv=MV 1 AS FELICIA
+shipper=Shipper 1 ECOKAKAO
+booking=Booking 2 ZIMUGYL00022177
+proforma_src=Proforma Masterview ZIMUGYL00022177.xls
+hbl_src=HBL DRAFT -  ULGO26US00281.pdf

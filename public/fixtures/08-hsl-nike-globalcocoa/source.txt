@@ -1,0 +1,6 @@
+﻿week=Semana 32
+mv=MV 1 HSL NIKE
+shipper=Shipper 3 GLOBAL COCOA
+booking=Booking 1 6461855950
+proforma_src=Masterview - FORMATO PROFORMA BKG GYEG12922300 LOTE 031(3).xls
+hbl_src=HBL DRAFT -  ULGO26US00336.pdf

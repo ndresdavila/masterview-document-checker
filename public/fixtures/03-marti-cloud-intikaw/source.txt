@@ -1,0 +1,6 @@
+﻿week=Semana 10
+mv=MV 1 MARTI CLOUD
+shipper=Shipper 1 INTIKAW
+booking=Booking 1 ZIMUGYL805586
+proforma_src=Masterview - FORMATO PROFORMA BKG LOTE 055 INTIKAW.xls
+hbl_src=HBL DRAFT -  ULGO26US00295.pdf
