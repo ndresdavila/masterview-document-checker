@@ -76,8 +76,46 @@ function captureAfter(text, re, stopRe) {
   return str(stop >= 0 ? rest.slice(0, stop) : rest)
 }
 
+function pickPortFromBlock(block, kind = 'loading') {
+  const city = kind === 'discharge'
+    ? /buenaventura|colombia|new york|united states|\busa\b|philadelphia|oakland|hamburg|rotterdam|posorja|guayaquil/i
+    : /guayaquil|posorja|ecuador|manta/i
+  const lines = str(block)
+    .split(/\r?\n/)
+    .map((l) => str(l).replace(/\s+/g, ' '))
+    .filter(Boolean)
+  for (const line of lines) {
+    if (!city.test(line)) continue
+    if (kind === 'loading' && /port of discharge/i.test(line) && !/guayaquil|posorja|manta/i.test(line)) continue
+    const cleaned = line
+      .replace(/port of loading:?/gi, ' ')
+      .replace(/port of discharge:?/gi, ' ')
+      .replace(/place of (receipt|delivery):?\s*\*?/gi, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+    if (!cleaned || !city.test(cleaned)) continue
+    if (kind === 'loading') {
+      const named = cleaned.match(/\b((?:GUAYAQUIL|POSORJA|MANTA)(?:\s*[,.-]\s*ECUADOR)?)\b/i)
+      if (named) return named[1].replace(/\s+/g, ' ').trim()
+    }
+    return cleaned
+  }
+  return ''
+}
+
+function extractPort(text, startRe, stopRe, kind = 'loading') {
+  const m = text.match(startRe)
+  if (!m) return ''
+  const rest = text.slice(m.index + m[0].length)
+  const stop = rest.search(stopRe)
+  const window = str(stop >= 0 ? rest.slice(0, Math.max(stop, 280)) : rest.slice(0, 280))
+  return pickPortFromBlock(window, kind)
+}
+
 function parseLabeledRefs(text) {
-  const hs = text.match(/HS\s*CODE:\s*([0-9.]+)/i)?.[1] || ''
+  const hs = text.match(/HS\s*CODE:\s*([0-9.]+)/i)?.[1]
+    || text.match(/P\.A\s*:\s*([0-9.]+)/i)?.[1]
+    || ''
   const fda =
     text.match(/FDA\.?\s*REG\.?\s*#\s*([0-9]+)/i)?.[1]
     || text.match(/FDA\s*NR\s*([0-9]+)/i)?.[1]
@@ -97,8 +135,36 @@ function knKb(text) {
   }
 }
 
+function parseTunaBlocks(text) {
+  const descs = [...text.matchAll(/LOMITOS DE AT[UÚ]N[\s\S]{0,240}?(?=LOMITOS DE AT[UÚ]N|TOTAL CAJAS|PESO NETO|FREIGHT COLLECT|$)/gi)]
+    .map((m) => m[0]
+      .replace(/\bMARCA:[\s\S]*/i, ' ')
+      .replace(/\bP\.A\s*:[\s\S]*/i, ' ')
+      .replace(/\s+/g, ' ')
+      .trim())
+    .filter(Boolean)
+  if (!descs.length) return []
+  const boxes = [...text.matchAll(/(\d+)\s+BOXES\b/gi)]
+    .map((m) => parseNumber(m[1]))
+    .filter((n) => n != null && n <= 5000)
+  const grosses = text
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => /^\d{1,2}\.\d{3},\d{2}$/.test(l))
+    .map((l) => parseNumber(l))
+    .filter((n) => n != null && n > 5000 && n < 40000)
+  return descs.map((description, i) => ({
+    pkgs: boxes[i] ?? null,
+    description,
+    netKg: null,
+    grossKg: grosses[i] ?? null,
+  }))
+}
+
 function parseCargoBlocks(text) {
   const upper = text.toUpperCase()
+  const tuna = parseTunaBlocks(upper)
+  if (tuna.length) return tuna
   const blocks = []
   const re = /(\d+)\s+(?:BAGS OF|BOXES)\b[\s\S]{0,220}?(?=\d+\s+(?:BAGS OF|BOXES)|TOTAL BAGS|TOTAL CAJAS|HS CODE|FREIGHT COLLECT|$)/g
   let m
@@ -221,14 +287,13 @@ function parseHblFromPlainText(text, fileName) {
 
   const split = splitVesselVoyagePort(vesselLine)
   const vessel = split.vessel
-  const portLoading = split.portLoading
+  const polFromLabel = extractPort(t, /Port of Loading/i, /Port of Discharge|Place of Delivery|Marks &/i, 'loading')
+    || pickPortFromBlock(captureAfter(t, /Place of Receipt/i, /Vessel|Port of Loading|Port of Discharge/i), 'loading')
+  const portLoading = polFromLabel || split.portLoading || ''
   const voyage = split.voyage || t.toUpperCase().match(VOYAGE_RE)?.[1] || ''
 
   const portDischarge =
-    captureAfter(t, /Port of Discharge/i, /Place of Delivery|Marks &|CONTAINER:/i)
-      .split(/\r?\n/)
-      .map(str)
-      .find((l) => /new york|united states|usa|guayaquil|hamburg|rotterdam|oakland|buenaventura|colombia|philadelphia|posorja/i.test(l))
+    extractPort(t, /Port of Discharge/i, /Place of Delivery|Marks &|CONTAINER:/i, 'discharge')
     || (t.match(/BUENAVENTURA[, ]+COLOMBIA/i)?.[0] ?? '')
     || (t.match(/NEW YORK,\s*UNITED STATES/i)?.[0] ?? '')
     || (t.match(/PHILADELPHIA/i)?.[0] ?? '')
@@ -240,7 +305,8 @@ function parseHblFromPlainText(text, fileName) {
     return all.length ? all[all.length - 1][0] : ''
   })()
   const marksMatch = t.match(/MARCAS:?\s*([\s\S]{0,220}?)(?=\d+\s+BAGS|TOTAL BAGS|HS CODE|FREIGHT COLLECT|$)/i)
-  const marksRaw = (lastBrandMarks || marksMatch?.[0] || '').split(/TOTAL BAGS|TOTAL CAJAS|TOTAL NET|HS CODE|FREIGHT COLLECT|\d+\s+BAGS\b/i)[0]
+  const marcaLine = t.match(/MARCA:\s*[A-Z0-9 ./-]+/i)?.[0] || ''
+  const marksRaw = (lastBrandMarks || marksMatch?.[0] || marcaLine).split(/TOTAL BAGS|TOTAL CAJAS|TOTAL NET|HS CODE|FREIGHT COLLECT|\d+\s+BAGS\b/i)[0]
   const totalsBags = parseNumber(t.match(/TOTAL BAGS:\s*([\d,]+)/i)?.[1])
     || parseNumber(t.match(/TOTAL CAJAS:\s*([\d.,]+)/i)?.[1])
     || parseNumber(t.match(/(\d+)\s+BAGS\s+\d+X40/i)?.[1])
@@ -307,7 +373,9 @@ function parseHblFromPlainText(text, fileName) {
       ruc,
       freightCollect: /FREIGHT COLLECT/i.test(t),
       shippedOnBoard: /SHIPPED ON BOARD/i.test(t),
-      hqLine: t.match(/\dX40HQ CONTAINERS STC/i)?.[0] || '',
+      hqLine: t.match(/\d+\s*X\s*\d+\s*(?:ST|HQ|GP|DRY)\b[^\n]{0,80}/i)?.[0]
+        || t.match(/\dX40HQ CONTAINERS STC/i)?.[0]
+        || '',
     },
   }
 }

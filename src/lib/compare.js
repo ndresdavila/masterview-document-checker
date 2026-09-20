@@ -5,10 +5,10 @@ import {
   similar,
   numbersClose,
   formatNumber,
-  commodityCanon,
   joinLines,
   vesselsMatch,
   portsMatch,
+  joinersConflict,
   contractsMatch,
   commoditiesMatch,
   hsMatch,
@@ -74,6 +74,14 @@ function compareText({ id, group, label, a, b, mode = 'text', note }) {
 
   if (emptyA && emptyB) {
     return { id, group, label, proforma: pa, hbl: pb, status: 'skip', detail: note }
+  }
+
+  if (!emptyA && !emptyB && mode !== 'number' && mode !== 'seal' && mode !== 'hs' && joinersConflict(a, b)) {
+    return {
+      id, group, label, proforma: pa, hbl: pb,
+      status: 'mismatch',
+      detail: 'Guion vs coma: no son equivalentes',
+    }
   }
 
   if (mode === 'number') {
@@ -274,8 +282,8 @@ function matchContainers(proformaList = [], hblList = []) {
         id: `ctr-${tag}-desc`,
         group: 'Contenedores',
         label: `${tag} · mercancía`,
-        a: commodityCanon(p.description),
-        b: commodityCanon(h?.description),
+        a: p.description,
+        b: h?.description,
         mode: 'commodity',
       }),
       compareText({
@@ -512,19 +520,18 @@ export function compareDocs(proforma, hbl) {
     )
   }
 
+  const freightBits = [hbl.extras?.freightCollect && 'FREIGHT COLLECT', hbl.extras?.shippedOnBoard && 'SHIPPED ON BOARD']
+    .filter(Boolean)
   items.push({
     id: 'freight-collect',
     group: 'Ajustes esperados',
     label: 'FREIGHT COLLECT / SHIPPED ON BOARD',
     proforma: 'No va en la proforma',
-    hbl: [hbl.extras?.freightCollect && 'FREIGHT COLLECT', hbl.extras?.shippedOnBoard && 'SHIPPED ON BOARD']
-      .filter(Boolean)
-      .join('\n') || '—',
-    status: hbl.extras?.freightCollect && hbl.extras?.shippedOnBoard ? 'relocated' : 'warning',
-    detail:
-      hbl.extras?.freightCollect && hbl.extras?.shippedOnBoard
-        ? 'Frases propias del HBL. No se contrastan contra la proforma.'
-        : 'No consta en el HBL.',
+    hbl: freightBits.join('\n') || '—',
+    status: freightBits.length ? (freightBits.length === 2 ? 'relocated' : 'extra') : 'warning',
+    detail: freightBits.length
+      ? 'Frases propias del HBL. No se contrastan contra la proforma.'
+      : 'No consta en el HBL.',
   })
 
   if (hbl.extras?.hqLine) {

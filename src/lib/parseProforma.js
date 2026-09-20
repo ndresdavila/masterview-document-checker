@@ -220,10 +220,16 @@ function parseContainers(grid, startRow, endRow) {
     if (/net weight/i.test(descCell)) {
       const n = parseNumber(descCell)
       if (plausibleNet(n)) current.netKg = n
-    } else if (descCell && /cocoa|bags|beans|grado|grade/i.test(descCell)) {
-      current.description = current.description
-        ? `${current.description} ${descCell}`
-        : descCell
+    } else if (
+      descCell
+      && /cocoa|bags|beans|grado|grade|cajas|boxes|atun|tuna|lomitos|latas/i.test(descCell)
+      && !/^marca:|^p\.a\s*:/i.test(descCell)
+    ) {
+      if (!current.description || !current.description.includes(descCell)) {
+        current.description = current.description
+          ? `${current.description} ${descCell}`
+          : descCell
+      }
       const weights = knKb(descCell)
       if (current.netKg == null && weights.netKg != null) current.netKg = weights.netKg
       if (current.grossKg == null && weights.grossKg != null) current.grossKg = weights.grossKg
@@ -408,8 +414,8 @@ export function parseProformaArrayBuffer(buffer, fileName = '') {
     ? parseNumber(grid[totalBagsLbl.r][totalBagsLbl.c + 1] ?? grid[totalBagsLbl.r][6])
       || parseNumber(grid[totalBagsLbl.r][totalBagsLbl.c])
     : containers.reduce((s, c) => s + (c.pkgs || 0), 0)
-  const netLbl = findLabel(grid, /total net weight/i)
-  const grossLbl = findLabel(grid, /total gross weight/i)
+  const netLbl = findLabel(grid, /total net weight|peso neto total/i)
+  const grossLbl = findLabel(grid, /total gross weight|peso bruto total/i)
 
   const marks = []
   if (marksLbl) {
@@ -425,6 +431,12 @@ export function parseProformaArrayBuffer(buffer, fileName = '') {
       if (!cleaned) continue
       if (/^b\/l to be|ocean freight|freight rates/i.test(cleaned)) break
       marks.push(cleaned)
+    }
+    for (let r = cargoStart; r < Math.min(grid.length, cargoEnd + 16); r += 1) {
+      for (const cell of grid[r] || []) {
+        const s = str(cell)
+        if (/^marca:\s*/i.test(s) && !marks.some((m) => /marca:/i.test(m))) marks.push(s)
+      }
     }
   }
 
@@ -482,7 +494,7 @@ export function parseProformaArrayBuffer(buffer, fileName = '') {
       cbm: allCbm || null,
     },
     refs: {
-      hsCode: pickPrefixed(/hs code/i),
+      hsCode: pickPrefixed(/hs code/i) || pickPrefixed(/\bp\.?\s*a\.?\s*:/i),
       fda: pickPrefixed(/fda/i),
       dae: pickPrefixed(/dae|d\.a\.e/i),
       contract: pickPrefixed(/contract|contrato/i) || pickPrefixed(/\bco\.\s*p/i),

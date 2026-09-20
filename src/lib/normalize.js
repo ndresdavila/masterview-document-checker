@@ -123,6 +123,29 @@ export function similar(a, b) {
   return Math.max(tokenRatio(a, b), levenshteinRatio(a, b))
 }
 
+function wordJoinerTypes(value) {
+  const raw = str(value)
+    .toUpperCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+  const found = new Set()
+  for (const m of raw.matchAll(/[A-Z]{2,}\s*([,-])\s*[A-Z]{2,}/g)) {
+    found.add(m[1])
+  }
+  return found
+}
+
+export function joinersConflict(a, b) {
+  const A = wordJoinerTypes(a)
+  const B = wordJoinerTypes(b)
+  if (!A.size || !B.size) return false
+  const aHyphen = A.has('-') && !A.has(',')
+  const bComma = B.has(',') && !B.has('-')
+  const aComma = A.has(',') && !A.has('-')
+  const bHyphen = B.has('-') && !B.has(',')
+  return (aHyphen && bComma) || (aComma && bHyphen)
+}
+
 export const ISO_RE = /\b([A-Z]{4}\d{7})\b/
 export const VOYAGE_RE = /\b(0[A-Z]{2,6}\d[A-Z]{1,3}|\d{2,6}[NSEW])\b/
 export const BL_RE = /\b([A-Z]{4}\d{2}[A-Z]{2}\d{5,})\b/
@@ -187,6 +210,7 @@ export function vesselsMatch(a, b) {
 }
 
 export function portsMatch(a, b) {
+  if (joinersConflict(a, b)) return false
   const A = portCanon(a)
   const B = portCanon(b)
   if (!A || !B) return false
@@ -212,6 +236,7 @@ export function contractsMatch(a, b) {
 }
 
 export function commoditiesMatch(a, b) {
+  if (joinersConflict(a, b)) return false
   const A = commodityCanon(a)
   const B = commodityCanon(b)
   if (!A || !B) return false
@@ -259,6 +284,7 @@ export function sealTokens(value) {
       if (t.length < 5 || t.length > 14) return false
       if (!/\d/.test(t)) return false
       if (/X40HQ/.test(t)) return false
+      if (/^\d+X\d+(ST|HQ|GP|DRY)?$/.test(t)) return false
       if (ISO_RE.test(t)) return false
       if (/^(BAGS|SEALS?|SELLOS?|NET|GROSS|WEIGHT|CONTAINER|CONTENEDOR)$/.test(t)) return false
       return true
