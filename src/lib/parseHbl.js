@@ -43,6 +43,13 @@ function textIn(words, box) {
     .filter(Boolean)
 }
 
+function stripBoiler(line) {
+  return str(line)
+    .replace(/your cargo,?\s*our commitment/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 function dropLeadingContacts(lines) {
   const out = [...lines]
   while (out.length && (/@/.test(out[0]) || /^(email|tel|telefono|contacto):/i.test(out[0]))) {
@@ -78,7 +85,7 @@ function captureAfter(text, re, stopRe) {
 
 function pickPortFromBlock(block, kind = 'loading') {
   const city = kind === 'discharge'
-    ? /buenaventura|colombia|new york|united states|\busa\b|philadelphia|oakland|hamburg|rotterdam|posorja|guayaquil/i
+    ? /buenaventura|colombia|new york|united states|\busa\b|philadelphia|oakland|hamburg|rotterdam|posorja|guayaquil|savannah/i
     : /guayaquil|posorja|ecuador|manta/i
   const lines = str(block)
     .split(/\r?\n/)
@@ -96,6 +103,9 @@ function pickPortFromBlock(block, kind = 'loading') {
     if (!cleaned || !city.test(cleaned)) continue
     if (kind === 'loading') {
       const named = cleaned.match(/\b((?:GUAYAQUIL|POSORJA|MANTA)(?:\s*[,.-]\s*ECUADOR)?)\b/i)
+      if (named) return named[1].replace(/\s+/g, ' ').trim()
+    } else {
+      const named = cleaned.match(/\b((?:BUENAVENTURA)(?:\s*[,.-]\s*COLOMBIA)?|(?:NEW YORK)(?:\s*[,.-]\s*(?:UNITED STATES|USA|US))?|(?:SAVANNAH)(?:\s*[,.-]\s*(?:UNITED STATES|USA|GA))?|(?:PHILADELPHIA|OAKLAND|HAMBURG|ROTTERDAM)(?:\s*[,.-]\s*(?:UNITED STATES|USA|COLOMBIA|GERMANY|NETHERLANDS))?)\b/i)
       if (named) return named[1].replace(/\s+/g, ' ').trim()
     }
     return cleaned
@@ -121,41 +131,62 @@ function parseLabeledRefs(text) {
     || text.match(/FDA\s*NR\s*([0-9]+)/i)?.[1]
     || ''
   const dae = text.match(/D\.?A\.?E\.?:?\s*#?\s*([0-9-]+)/i)?.[1] || ''
-  const contract = text.match(/CONTRACT#:\s*([A-Z0-9._-]+(?:\s+[A-Z]\b)?)/i)?.[1] || ''
+  let contract = text.match(/CONTRACT#:\s*([A-Z0-9._-]+(?:\s+[A-Z]\b)?)/i)?.[1] || ''
+  if (/^(FREIGHT|SHIPPED|COLLECT|PREPAID|EXPRESS)$/i.test(contract)) contract = ''
   return { hsCode: hs, fda, dae, contract }
 }
 
 function knKb(text) {
   const raw = str(text)
-  const kn = raw.match(/([\d.,]+)\s*K\.?\s*N/i)
-  const kb = raw.match(/([\d.,]+)\s*K\.?\s*B/i)
+  const nets = [...raw.matchAll(/([\d.,]+)\s*K\.?\s*N/gi)]
+    .map((m) => parseNumber(m[1]))
+    .filter((n) => n != null && n >= 1000)
+  const grosses = [...raw.matchAll(/([\d.,]+)\s*K\.?\s*B/gi)]
+    .map((m) => parseNumber(m[1]))
+    .filter((n) => n != null && n >= 1000)
   return {
-    netKg: kn ? parseNumber(kn[1]) : null,
-    grossKg: kb ? parseNumber(kb[1]) : null,
+    netKg: nets.length ? nets[nets.length - 1] : null,
+    grossKg: grosses.length ? grosses[grosses.length - 1] : null,
   }
 }
 
-function parseTunaBlocks(text) {
-  const descs = [...text.matchAll(/LOMITOS DE AT[UÚ]N[\s\S]{0,240}?(?=LOMITOS DE AT[UÚ]N|TOTAL CAJAS|PESO NETO|FREIGHT COLLECT|$)/gi)]
+function parseBoxedGoodsBlocks(text) {
+  const descRe = /(?:LOMITOS DE AT[UÚ]N|RALLADO DE AT[UÚ]N|CONSERVAS DE[\s\S]{0,40}?PESCADO)[\s\S]{0,220}?(?=LOMITOS DE AT[UÚ]N|RALLADO DE AT[UÚ]N|CONSERVAS DE|TOTAL CAJAS|PESO NETO|FREIGHT COLLECT|$)/gi
+  const descs = [...text.matchAll(descRe)]
     .map((m) => m[0]
       .replace(/\bMARCA:[\s\S]*/i, ' ')
       .replace(/\bP\.A\s*:[\s\S]*/i, ' ')
+      .replace(/\bSELLOS?:[\s\S]*/i, ' ')
+      .replace(/\bCONTENEDOR:[\s\S]*/i, ' ')
+      .replace(/\bONE[A-Z]\s*\d[\s\S]*/i, ' ')
+      .replace(/\d{1,2}[.,]\d{3}[.,]\d{2}/g, ' ')
       .replace(/\s+/g, ' ')
       .trim())
     .filter(Boolean)
-  if (!descs.length) return []
-  const boxes = [...text.matchAll(/(\d+)\s+BOXES\b/gi)]
+  const cargoHead = text.split(/TOTAL CAJAS|TOTAL PACKAGES|PESO NETO TOTAL|TOTAL PESO NETO|TOTAL NET WEIGHT|PESO BRUTO TOTAL|TOTAL GROSS/i)[0]
+  const boxHits = [...cargoHead.matchAll(/(\d{3,4})\s+(?:BOXES|CAJAS|LOMITOS|CONSERVAS|RALLADO)\b/gi)]
+  const boxes = boxHits
+    .filter((m) => {
+      const before = cargoHead.slice(Math.max(0, m.index - 12), m.index).replace(/\s+/g, '')
+      return !/[A-Z]{3,4}\d+$/i.test(before)
+    })
     .map((m) => parseNumber(m[1]))
-    .filter((n) => n != null && n <= 5000)
-  const grosses = text
-    .split(/\r?\n/)
-    .map((l) => l.trim())
-    .filter((l) => /^\d{1,2}\.\d{3},\d{2}$/.test(l))
-    .map((l) => parseNumber(l))
-    .filter((n) => n != null && n > 5000 && n < 40000)
-  return descs.map((description, i) => ({
+    .filter((n) => n != null && n >= 100 && n <= 5000)
+  const grosses = []
+  for (const m of text.matchAll(/(\d{1,2}[.,]\d{3}[.,]\d{2}|\d{4,5}\.\d{2})(?:\s*KGS?)?/gi)) {
+    const n = parseNumber(m[1])
+    if (n == null || n <= 8000 || n >= 32000) continue
+    const lineStart = text.lastIndexOf('\n', m.index)
+    const lineEnd = text.indexOf('\n', m.index)
+    const line = text.slice(lineStart + 1, lineEnd < 0 ? text.length : lineEnd)
+    if (/PESO NETO|NET WEIGHT|TOTAL PESO NETO|TOTAL NET/i.test(line) && !/GROSS/i.test(line)) continue
+    grosses.push(n)
+  }
+  const count = Math.max(descs.length, boxes.length)
+  if (!count) return []
+  return Array.from({ length: count }, (_, i) => ({
     pkgs: boxes[i] ?? null,
-    description,
+    description: descs[i] ?? '',
     netKg: null,
     grossKg: grosses[i] ?? null,
   }))
@@ -163,29 +194,36 @@ function parseTunaBlocks(text) {
 
 function parseCargoBlocks(text) {
   const upper = text.toUpperCase()
-  const tuna = parseTunaBlocks(upper)
-  if (tuna.length) return tuna
+  const boxed = parseBoxedGoodsBlocks(upper)
+  if (boxed.length) return boxed
   const blocks = []
-  const re = /(\d+)\s+(?:BAGS OF|BOXES)\b[\s\S]{0,220}?(?=\d+\s+(?:BAGS OF|BOXES)|TOTAL BAGS|TOTAL CAJAS|HS CODE|FREIGHT COLLECT|$)/g
+  const re = /(\d+)\s+(?:BAGS OF|BOXES|PACKAGES OF|PACKAGES\b|CAJAS DE)\b[\s\S]{0,420}?(?=\d+\s+(?:BAGS OF|BOXES|PACKAGES OF|PACKAGES\b|CAJAS DE)|TOTAL BAGS|TOTAL CAJAS|TOTAL PACKAGES|HS CODE|FREIGHT COLLECT|$)/g
   let m
   while ((m = re.exec(upper))) {
     const chunk = m[0]
     if (/TOTAL BAGS/.test(chunk) && !/BAGS OF/.test(chunk)) continue
     const pkgs = parseNumber(m[1])
-    const isBoxes = /\bBOXES\b/.test(chunk) && !/BAGS OF/.test(chunk)
-    if (pkgs != null && pkgs > 800 && !isBoxes) continue
+    const isLoose = /\b(?:BOXES|PACKAGES OF|PACKAGES\b|CAJAS DE)\b/.test(chunk) && !/BAGS OF/.test(chunk)
+    if (pkgs != null && pkgs > 800 && !isLoose) continue
     if (pkgs != null && pkgs > 5000) continue
     const weights = knKb(chunk)
     if (weights.netKg != null && weights.netKg > 40000) continue
     const grado = chunk.match(/TYPE GRADO\s+\d|TYPE GRADE\s+\d(?:\s+RFA)?|GRADE\s+\d(?:\s+RFA)?/)?.[0] || ''
-    const bagsLine = chunk.match(/BAGS OF[\s\S]{0,90}?BEANS/)?.[0]
-      || chunk.match(/(?:LOMITOS|RALLADO|ATUN)[\s\S]{0,90}?LATAS/)?.[0]
+    const bagsLine = chunk.match(/BAGS OF[\s\S]{0,90}?(?:BEANS|ARABICA|COFFEE)/)?.[0]
+      || chunk.match(/PACKAGES OF[\s\S]{0,80}?(?:RICE|ARROZ)/)?.[0]
+      || chunk.match(/(?:LOMITOS|RALLADO|ATUN|CONSERVAS)[\s\S]{0,90}?LATAS/)?.[0]
+      || chunk.match(/CAJAS DE[\s\S]{0,80}?PESCADO/)?.[0]
       || ''
+    const labeledGross = parseNumber(chunk.match(/GROSS WEIGHT:\s*([\d.,]+)/i)?.[1])
+      ?? parseNumber(chunk.match(/([\d.,]+)\s+GROSS WEIGHT/i)?.[1])
+    const labeledNet = parseNumber(chunk.match(/NET WEIGHT:\s*([\d.,]+)/i)?.[1])
+      ?? parseNumber(chunk.match(/([\d.,]+)\s+NET WEIGHT/i)?.[1])
+    const netKg = labeledNet != null && labeledNet < 1000 ? null : labeledNet
     blocks.push({
       pkgs: parseNumber(m[1]),
       description: [bagsLine, grado].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim(),
-      netKg: parseNumber(chunk.match(/NET WEIGHT:\s*([\d,]+\.?\d*)/)?.[1]) ?? weights.netKg,
-      grossKg: parseNumber(chunk.match(/GROSS WEIGHT:\s*([\d,]+\.?\d*)/)?.[1]) ?? weights.grossKg,
+      netKg,
+      grossKg: labeledGross != null && labeledGross < 1000 ? weights.grossKg : (labeledGross ?? weights.grossKg),
     })
   }
   return blocks
@@ -214,16 +252,28 @@ function parseContainersFromText(text) {
   }
 
   const blocks = parseCargoBlocks(upper)
-  const n = Math.min(containers.length, blocks.length)
-  for (let i = 0; i < n; i += 1) {
-    containers[i].pkgs = blocks[i].pkgs
-    containers[i].description = blocks[i].description
-    containers[i].netKg = blocks[i].netKg
-    containers[i].grossKg = blocks[i].grossKg
+  if (containers.length === 1 && blocks.length > 1) {
+    const best = blocks.reduce((a, b) => ((b.pkgs || 0) > (a.pkgs || 0) ? b : a))
+    containers[0].pkgs = best.pkgs
+    containers[0].description = best.description
+    containers[0].netKg = best.netKg
+    containers[0].grossKg = best.grossKg
+  } else {
+    const n = Math.min(containers.length, blocks.length)
+    for (let i = 0; i < n; i += 1) {
+      containers[i].pkgs = blocks[i].pkgs
+      containers[i].description = blocks[i].description
+      containers[i].netKg = blocks[i].netKg
+      containers[i].grossKg = blocks[i].grossKg
+    }
   }
   const complete = containers.filter((c) => c.pkgs != null)
   const missingCargo = containers.filter((c) => c.pkgs == null)
-  if (missingCargo.length && complete.length && complete.every((c) => c.pkgs === complete[0].pkgs)) {
+  const boxCounts = [...upper.matchAll(/(\d+)\s+BOXES\b/gi)]
+    .map((m) => parseNumber(m[1]))
+    .filter((n) => n != null && n <= 5000)
+  const sameBoxes = new Set(boxCounts).size <= 1
+  if (missingCargo.length && complete.length && sameBoxes && complete.every((c) => c.pkgs === complete[0].pkgs)) {
     missingCargo.forEach((c) => {
       c.pkgs = complete[0].pkgs
       c.description = c.description || complete[0].description
@@ -231,13 +281,28 @@ function parseContainersFromText(text) {
       c.grossKg = c.grossKg ?? complete[0].grossKg
     })
   }
+  const kns = [...upper.matchAll(/([\d.,]+)\s*K\.?\s*N/gi)]
+    .map((m) => parseNumber(m[1]))
+    .filter((n) => n != null && n >= 1000 && n < 40000)
+  if (kns.length === containers.length) {
+    containers.forEach((c, i) => { if (c.netKg == null) c.netKg = kns[i] })
+  }
+  const kbs = [...upper.matchAll(/([\d.,]+)\s*K\.?\s*B/gi)]
+    .map((m) => parseNumber(m[1]))
+    .filter((n) => n != null && n >= 1000 && n < 40000)
+  if (kbs.length === containers.length) {
+    containers.forEach((c, i) => { if (c.grossKg == null) c.grossKg = kbs[i] })
+  }
   return containers
 }
 
 function parseHblFromPlainText(text, fileName) {
   const t = text.replace(/\u00a0/g, ' ')
   const bookingNo = extractBooking(t)
-  const blNo = t.toUpperCase().match(BL_RE)?.[1] || ''
+  const blNo = t.toUpperCase().match(/\b(ULGO\d{2}[A-Z]{2}\d{5,})\b/)?.[1]
+    || t.toUpperCase().match(/\b(ONEY[A-Z0-9]{10,})\b/)?.[1]
+    || t.toUpperCase().match(BL_RE)?.[1]
+    || (/^ZIMU|^GYEG|^ONEY/i.test(bookingNo) ? bookingNo : '')
 
   const shipperBlock = captureAfter(
     t,
@@ -258,8 +323,8 @@ function parseHblFromPlainText(text, fileName) {
   const consignee = splitParty(
     captureAfter(t, /\bConsignee\b/i, /\bNotify Party\b/i)
       .split(/\r?\n/)
-      .map(str)
-      .filter((l) => l && !/your cargo|unless provided|non-negotiable unless/i.test(l)),
+      .map(stripBoiler)
+      .filter((l) => l && !/unless provided|non-negotiable unless/i.test(l)),
   )
 
   const notify = splitParty(
@@ -274,8 +339,8 @@ function parseHblFromPlainText(text, fileName) {
   const secondNotify = splitParty(
     captureAfter(t, /\bSecond Notify:?/i, /\bPre-Carriage|\bVessel\b|\bNotify Party\b/i)
       .split(/\r?\n/)
-      .map(str)
-      .filter((l) => l && !/your cargo/i.test(l)),
+      .map(stripBoiler)
+      .filter((l) => l),
   )
 
   const vesselLine = t
@@ -309,6 +374,7 @@ function parseHblFromPlainText(text, fileName) {
   const marksRaw = (lastBrandMarks || marksMatch?.[0] || marcaLine).split(/TOTAL BAGS|TOTAL CAJAS|TOTAL NET|HS CODE|FREIGHT COLLECT|\d+\s+BAGS\b/i)[0]
   const totalsBags = parseNumber(t.match(/TOTAL BAGS:\s*([\d,]+)/i)?.[1])
     || parseNumber(t.match(/TOTAL CAJAS:\s*([\d.,]+)/i)?.[1])
+    || parseNumber(t.match(/TOTAL PACKAGES:\s*([\d,]+)/i)?.[1])
     || parseNumber(t.match(/(\d+)\s+BAGS\s+\d+X40/i)?.[1])
   const pickLargeWeight = (labeledRe, genericRe) => {
     const labeled = parseNumber(t.match(labeledRe)?.[1])
@@ -340,6 +406,8 @@ function parseHblFromPlainText(text, fileName) {
   ) || lastGrossLabeled
     || (kgBesideCbm != null && kgBesideCbm > 40000 ? kgBesideCbm : null)
     || parseNumber(t.match(/PESO BRUTO TOTAL:\s*([\d.,]+)/i)?.[1])
+    || parseNumber(t.match(/TOTAL PESO BRUTO:\s*([\d.,]+)/i)?.[1])
+    || [...t.matchAll(/([\d.,]+)\s+GROSS WEIGHT/gi)].map((m) => parseNumber(m[1])).filter((n) => n != null && n > 10000).pop()
     || lastLargeKb
   const cbm = parseNumber(t.match(/([\d,]+\.?\d*)\s*CBM/i)?.[1])
 
@@ -453,17 +521,18 @@ function parseHblFromPdfWords(words, fileName, extraText = '') {
   const fromText = parseHblFromPlainText([page1, extraText].filter(Boolean).join('\n'), fileName)
   const leftContainers = parseContainersFromText(`${leftCargo}\n${descText}`)
   const fullContainers = fromText.containers
-  const containers = leftContainers.length >= fullContainers.length ? leftContainers : fullContainers
+  const cargoScore = (list) => list.reduce((s, c) => s + (c.pkgs != null ? 2 : 0) + (c.grossKg != null ? 2 : 0) + (c.description ? 1 : 0), 0)
+  const containers = (cargoScore(fullContainers) >= cargoScore(leftContainers) && fullContainers.length
+    ? fullContainers
+    : (leftContainers.length ? leftContainers : fullContainers))
   containers.forEach((c, i) => {
     const left = leftContainers.find((x) => x.id === c.id) || leftContainers[i]
     const full = fullContainers.find((x) => x.id === c.id) || fullContainers[i]
     if (left?.seal) c.seal = left.seal
-    if (c.pkgs == null && full?.pkgs != null) {
-      c.pkgs = full.pkgs
-      c.description = c.description || full.description
-      c.netKg = c.netKg ?? full.netKg
-      c.grossKg = c.grossKg ?? full.grossKg
-    }
+    if (c.pkgs == null) c.pkgs = full?.pkgs ?? left?.pkgs ?? null
+    if (!c.description) c.description = full?.description || left?.description || ''
+    if (c.netKg == null) c.netKg = full?.netKg ?? left?.netKg ?? null
+    if (c.grossKg == null) c.grossKg = full?.grossKg ?? left?.grossKg ?? null
   })
 
   return {
@@ -472,15 +541,19 @@ function parseHblFromPdfWords(words, fileName, extraText = '') {
     shipper,
     bookingNo: bookingNo || fromText.bookingNo,
     blNo: blNo || fromText.blNo,
-    consignee,
-    notify,
+    consignee: ((fromText.consignee?.lines || []).join(' ').length > (consignee.lines || []).join(' ').length + 15
+      ? fromText.consignee
+      : consignee),
+    notify: ((fromText.notify?.lines || []).join(' ').length > (notify.lines || []).join(' ').length + 15
+      ? fromText.notify
+      : notify),
     secondNotify: secondNotify.name ? secondNotify : fromText.secondNotify,
     vessel: vessel || fromText.vessel,
     voyage: voyage || fromText.voyage,
     portLoading: portLoading || fromText.portLoading,
-    portDischarge: /guayaquil|york|philadelphia|buenaventura|oakland|hamburg|rotterdam|posorja|colombia|united states/i.test(portDischarge)
-      ? portDischarge
-      : (fromText.portDischarge || portDischarge),
+    portDischarge: pickPortFromBlock([portDischarge, fromText.portDischarge].filter(Boolean).join('\n'), 'discharge')
+      || fromText.portDischarge
+      || portDischarge,
     containers: containers.length ? containers : fromText.containers,
     marks: {
       text: (() => {

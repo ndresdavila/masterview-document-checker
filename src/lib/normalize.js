@@ -148,12 +148,23 @@ export function joinersConflict(a, b) {
 
 export const ISO_RE = /\b([A-Z]{4}\d{7})\b/
 export const VOYAGE_RE = /\b(0[A-Z]{2,6}\d[A-Z]{1,3}|\d{2,6}[NSEW])\b/
-export const BL_RE = /\b([A-Z]{4}\d{2}[A-Z]{2}\d{5,})\b/
+export const BL_RE = /\b(ULGO\d{2}[A-Z]{2}\d{5,}|ONEY[A-Z0-9]{10,}|[A-Z]{4}\d{2}[A-Z]{2}\d{5,})\b/
 export const BOOKING_RE = /\b(ZIMU\s*[A-Z]{2,5}\s*\d{5,}|GYEG\s*\d{8,}|\d{10})\b/i
 
 export function isVoyageToken(token) {
   const s = canon(token).replace(/\s+/g, '')
   return /^0[A-Z]{2,6}\d[A-Z]{1,3}$/.test(s) || /^\d{2,6}[NSEW]$/.test(s)
+}
+
+export function voyageCanon(value) {
+  return canon(value).replace(/\s+/g, '')
+}
+
+export function voyagesMatch(a, b) {
+  const A = voyageCanon(a)
+  const B = voyageCanon(b)
+  if (!A || !B) return false
+  return A === B
 }
 
 export function findVoyage(text) {
@@ -215,6 +226,7 @@ export function portsMatch(a, b) {
   const B = portCanon(b)
   if (!A || !B) return false
   if (A === B) return true
+  if (/\bSAVANNAH\b/.test(A) && /\bSAVANNAH\b/.test(B)) return true
   if (A.includes(B) || B.includes(A)) return true
   return similar(A, B) >= 0.86
 }
@@ -307,10 +319,10 @@ export function extractIsoId(text) {
   const seven = raw.match(/\b([A-Z]{4}\d{7})\b/)
   if (eight && !seven) return eight[1]
   if (seven) return seven[1]
-  const three = raw.match(/\b([A-Z]{3}\d{7})\b/)
-  if (three) return three[1]
   const any = compact.match(/([A-Z]{4}\d{7})/)
-  return any ? any[1] : ''
+  if (any) return any[1]
+  const three = compact.match(/^([A-Z]{3}\d{7})$/)
+  return three ? three[1] : ''
 }
 
 export function commodityCanon(value) {

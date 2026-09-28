@@ -1,8 +1,7 @@
 import { parseProformaArrayBuffer } from './parseProforma.js'
 import { parseHblPdf, parseHblDocx } from './parseHblPdf.js'
 
-export const PROFORMA_EXT = ['.xls', '.xlsx']
-export const HBL_EXT = ['.pdf', '.docx']
+const PROFORMA_EXT = ['.xls', '.xlsx']
 
 function extOf(name = '') {
   const m = String(name).toLowerCase().match(/(\.[a-z0-9]+)$/)
@@ -33,11 +32,4 @@ export async function parseDroppedFile(file, expected) {
   if (kind === 'proforma') return parseProformaArrayBuffer(buffer, file.name)
   if (extOf(file.name) === '.pdf') return parseHblPdf(buffer, file.name)
   return parseHblDocx(buffer, file.name)
-}
-
-export async function fileFromUrl(url, name) {
-  const res = await fetch(url)
-  if (!res.ok) throw new Error(`No se pudo cargar ${name}`)
-  const blob = await res.blob()
-  return new File([blob], name, { type: blob.type })
 }

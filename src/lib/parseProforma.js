@@ -82,16 +82,16 @@ function isSealToken(value) {
 
 function knKb(text) {
   const raw = str(text)
-  const kn = raw.match(/([\d.,]+)\s*K\.?\s*N/i)
-  const kb = raw.match(/([\d.,]+)\s*K\.?\s*B/i)
+  const nets = [...raw.matchAll(/([\d.,]+)\s*K\.?\s*N/gi)]
+    .map((m) => parseNumber(m[1]))
+    .filter((n) => n != null && n >= 1000)
+  const grosses = [...raw.matchAll(/([\d.,]+)\s*K\.?\s*B/gi)]
+    .map((m) => parseNumber(m[1]))
+    .filter((n) => n != null && n >= 1000)
   return {
-    netKg: kn ? parseNumber(kn[1]) : null,
-    grossKg: kb ? parseNumber(kb[1]) : null,
+    netKg: nets.length ? nets[nets.length - 1] : null,
+    grossKg: grosses.length ? grosses[grosses.length - 1] : null,
   }
-}
-
-function plausiblePkgs(n) {
-  return n != null && n > 0 && n < 800
 }
 
 function plausibleGross(n) {
@@ -107,7 +107,7 @@ function plausibleNet(n) {
 }
 
 function bagsFromText(text) {
-  const m = str(text).match(/(\d+)\s+BAGS/i)
+  const m = str(text).match(/(\d+)\s+(?:BAGS|BOXES|CAJAS)/i)
   return m ? parseNumber(m[1]) : null
 }
 
@@ -157,7 +157,7 @@ function parseContainers(grid, startRow, endRow) {
         seal: '',
         seals: [],
         pkgs: pickPkgs(rowPkgs, descCell),
-        description: /cocoa|bags|beans|grado|grade|cajas|boxes|atun|tuna/i.test(descCell) ? descCell : '',
+        description: /cocoa|bags|beans|grado|grade|cajas|boxes|atun|tuna|lomitos|conservas|pescado|rice|arroz|packages|arabica|coffee/i.test(descCell) ? descCell : '',
         netKg: (() => {
           const fromDesc = /net weight/i.test(descCell) ? parseNumber(descCell) : null
           if (plausibleNet(fromDesc)) return fromDesc
@@ -222,7 +222,7 @@ function parseContainers(grid, startRow, endRow) {
       if (plausibleNet(n)) current.netKg = n
     } else if (
       descCell
-      && /cocoa|bags|beans|grado|grade|cajas|boxes|atun|tuna|lomitos|latas/i.test(descCell)
+        && /cocoa|bags|beans|grado|grade|cajas|boxes|atun|tuna|lomitos|latas|conservas|pescado|tinapa|rice|arroz|packages|arabica|cafe|coffee/i.test(descCell)
       && !/^marca:|^p\.a\s*:/i.test(descCell)
     ) {
       if (!current.description || !current.description.includes(descCell)) {

@@ -7,6 +7,7 @@ import {
   formatNumber,
   joinLines,
   vesselsMatch,
+  voyagesMatch,
   portsMatch,
   joinersConflict,
   contractsMatch,
@@ -17,10 +18,12 @@ import {
 } from './normalize.js'
 
 function bagsTotal(doc) {
-  if (doc?.totals?.bags != null) return doc.totals.bags
+  const labeled = doc?.totals?.bags
+  if (labeled != null && labeled > 0) return labeled
   const pkgs = (doc?.containers || []).map((c) => c.pkgs).filter((n) => n != null)
   if (pkgs.length && pkgs.length === (doc.containers || []).length) {
-    return pkgs.reduce((sum, n) => sum + n, 0)
+    const sum = pkgs.reduce((s, n) => s + n, 0)
+    return sum > 0 ? sum : null
   }
   return null
 }
@@ -192,6 +195,25 @@ function compareText({ id, group, label, a, b, mode = 'text', note }) {
       id, group, label, proforma: pa, hbl: pb,
       status: ok ? 'match' : 'mismatch',
       detail: ok ? 'Mismo sello' : 'Sellos distintos',
+    }
+  }
+
+  if (mode === 'voyage') {
+    if (emptyA && emptyB) {
+      return { id, group, label, proforma: pa, hbl: pb, status: 'skip', detail: note }
+    }
+    if (emptyA && !emptyB) {
+      return {
+        id, group, label, proforma: pa, hbl: pb,
+        status: 'warning',
+        detail: 'El HBL trae voyage; la celda de la proforma está vacía',
+      }
+    }
+    const ok = voyagesMatch(a, b)
+    return {
+      id, group, label, proforma: pa, hbl: pb,
+      status: ok ? 'match' : 'mismatch',
+      detail: ok ? 'Coincide' : 'Valores distintos',
     }
   }
 
@@ -401,6 +423,7 @@ export function compareDocs(proforma, hbl) {
       label: 'Voyage',
       a: proforma.voyage,
       b: hbl.voyage,
+      mode: 'voyage',
     }),
     compareText({
       id: 'pol',
@@ -554,10 +577,8 @@ export function compareDocs(proforma, hbl) {
   const scored = visible.filter((i) => ['match', 'mismatch', 'warning', 'relocated'].includes(i.status))
   const good = scored.filter((i) => i.status === 'match' || i.status === 'relocated').length
   const score = scored.length ? Math.round((good / scored.length) * 100) : 0
-  const ok = mismatches.length === 0 && warnings.length === 0
 
   return {
-    ok,
     score,
     items: visible,
     counts: {

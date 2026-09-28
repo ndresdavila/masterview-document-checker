@@ -2,13 +2,11 @@
 
 @theme {
   --font-sans: Arial, Helvetica, sans-serif;
-  --font-mono: Arial, Helvetica, sans-serif;
   --color-paper: #f4f4f4;
   --color-paper-2: #e8e8e8;
   --color-ink: #1a1a1a;
   --color-muted: #6b6b6b;
   --color-navy: #1a1a1a;
-  --color-sea: #444444;
   --color-ok: #1f6b3a;
   --color-ok-soft: #e8f2eb;
   --color-bad: #9b2c2c;
