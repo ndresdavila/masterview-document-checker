@@ -6,7 +6,7 @@ export function str(value) {
     }
     return String(value)
   }
-  return String(value).replace(/\u00a0/g, ' ').trim()
+  return String(value).replace(/\u00a0/g, ' ').replace(/\u200b/g, '').trim()
 }
 
 export function canon(value) {
@@ -51,6 +51,8 @@ export function parseNumber(value) {
     raw = raw.slice(0, last).replace(/\./g, '') + '.' + raw.slice(last + 1)
   } else if (/^\d{1,3}\.\d{3}$/.test(raw) && raw.endsWith('.000')) {
     raw = raw.slice(0, -4)
+  } else if (/^\d{1,3}(,\d{3})+,\d{2}$/.test(raw)) {
+    raw = raw.replace(/,(\d{2})$/, '.$1').replace(/,/g, '')
   } else if (/^\d+,\d{1,2}$/.test(raw)) {
     raw = raw.replace(',', '.')
   } else if (/^\d{1,3}(\.\d{3})+(,\d+)?$/.test(raw)) {

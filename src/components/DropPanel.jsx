@@ -25,7 +25,7 @@ export default function DropPanel({
     <section className="paper-card flex min-h-[240px] flex-col p-4">
       <div className="mb-3 flex items-baseline justify-between gap-3">
         <h2 className="text-base font-semibold text-navy">{title}</h2>
-        <span className="text-xs text-muted">{side === 'proforma' ? 'Excel' : 'PDF / Word'}</span>
+        <span className="text-xs text-muted">{side === 'proforma' ? 'Excel / Word' : 'PDF / Word'}</span>
       </div>
 
       <label

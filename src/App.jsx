@@ -43,9 +43,9 @@ export default function App() {
   }
 
   function onDropFile(side, file) {
-    const kind = classifyFile(file)
+    const kind = classifyFile(file, side)
     if (kind === 'proforma') loadSide('proforma', file)
-    else if (kind === 'hbl' || kind === 'hbl-old') loadSide('hbl', file)
+    else if (kind === 'hbl' || kind === 'old-word') loadSide('hbl', file)
     else loadSide(side, file)
   }
 
@@ -109,8 +109,8 @@ export default function App() {
           <DropPanel
             side="proforma"
             title="Proforma"
-            hint="Archivo Excel de proforma"
-            accept=".xls,.xlsx"
+            hint="Archivo Excel o Word de proforma"
+            accept=".xls,.xlsx,.docx"
             file={proformaFile}
             doc={proforma}
             error={errors.proforma}

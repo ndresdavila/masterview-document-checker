@@ -134,6 +134,10 @@ function parseContainers(grid, startRow, endRow) {
   const flush = () => {
     if (current && (current.id || current.description)) {
       if (current.seals?.length && !current.seal) current.seal = current.seals.join(', ')
+      if (current.multiSku) {
+        current.grossKg = null
+        current.cbm = null
+      }
       containers.push(current)
     }
     current = null
@@ -197,6 +201,19 @@ function parseContainers(grid, startRow, endRow) {
 
     if (!current.pkgs) {
       current.pkgs = pickPkgs(parseNumber(row[3]), row[5] || row[4])
+    } else {
+      const extraPkgs = pickPkgs(parseNumber(row[3]), row[5] || row[4])
+      const extraDesc = str(row[5] || row[4])
+      if (
+        extraPkgs
+        && extraDesc
+        && current.description
+        && !current.description.includes(extraDesc)
+        && /packages|rice|arroz|boxes|cajas|bulks/i.test(extraDesc)
+      ) {
+        current.pkgs += extraPkgs
+        current.multiSku = true
+      }
     }
     if (!current.grossKg) {
       const rowGross = parseNumber(row[8])
@@ -207,7 +224,7 @@ function parseContainers(grid, startRow, endRow) {
       if (plausibleCbm(rowCbm) && !/^cbm$/i.test(str(row[9]))) current.cbm = rowCbm
     }
 
-    const iso = extractIsoId(c0)
+    const iso = extractIsoId(c0) || extractIsoId(joined)
     if (iso && !current.id) {
       current.id = iso
       collectingSeals = false
@@ -256,7 +273,7 @@ function parseLooseIsoContainers(grid, startRow, endRow) {
     const row = grid[r] || []
     const c0 = str(row[0])
     if (/^marks$/i.test(c0) || /total bags/i.test(c0)) break
-    const iso = extractIsoId(c0)
+    const iso = extractIsoId(c0) || extractIsoId(row.map(str).join(' '))
     if (!iso) continue
     const descCell = str(row[5] || row[4])
     const nextDesc = str((grid[r + 1] || [])[5] || (grid[r + 1] || [])[4])

@@ -33,6 +33,23 @@ function partyText(party) {
   return joinLines(party.lines?.length ? party.lines : [party.name, party.address])
 }
 
+function splitPartyBlocks(party) {
+  const lines = (party?.lines || []).map(str).filter(Boolean)
+  const startRe = /^(721\s+LOGISTICS|BLOMMER|MACQUARIE|ITOCHU|DEPENDABLE|SUDESPENSA|BRAUNER)/i
+  const blocks = []
+  let cur = []
+  for (const l of lines) {
+    if (cur.length && startRe.test(l)) {
+      blocks.push(cur)
+      cur = [l]
+    } else {
+      cur.push(l)
+    }
+  }
+  if (cur.length) blocks.push(cur)
+  return blocks
+}
+
 function display(value) {
   if (value == null || value === '') return '—'
   return str(value)
@@ -59,7 +76,12 @@ function cleanMarks(text) {
     })
     .join(' ')
     .replace(/^\s*SPS\s+/i, '')
-    .replace(/\bPRODUCT OF ECUADOR\b/gi, ' ')
+    .replace(/\b(?:PRODUCT\s+)?OF ECUADOR\b/gi, ' ')
+    .replace(/\b(?:CERTIFIED\s+)?(?:TYPE\s+)?GRADE\s+\d(?:\s+RFA)?/gi, ' ')
+    .replace(/\bDAE:?\s*[\d-]+/gi, ' ')
+    .replace(/\b028-\d{4}-\d{2}-\d+/g, ' ')
+    .replace(/\bLOTE#?\s*[A-Z0-9-]+/gi, ' ')
+    .replace(/\b(?:NEW YORK|PHILADELPHIA|OAKLAND|UNITED STATES|USA)\b/gi, ' ')
     .replace(/\bSUSTAINABLE ORIGINS MASS BALANCE\b/gi, ' ')
     .replace(/\bCACAO EN GRANO ECUATORIANO\b/gi, ' ')
     .replace(/\bMARCAS:?\b/gi, ' ')
@@ -376,11 +398,33 @@ export function compareDocs(proforma, hbl) {
     }),
   )
 
+  const notifyItem = items[items.length - 1]
+  let secondFromProforma = partyText(proforma.secondNotify)
+  if ((notifyItem.status === 'mismatch' || notifyItem.proforma === '—') && secondFromProforma && partyText(hbl.notify)) {
+    const blocks = splitPartyBlocks(proforma.secondNotify)
+    const firstBlock = blocks[0] ? joinLines(blocks[0]) : secondFromProforma
+    const fromSecond = compareText({
+      id: 'notify',
+      group: 'Partes',
+      label: 'Notify party',
+      a: firstBlock,
+      b: partyText(hbl.notify),
+      mode: 'address',
+    })
+    if (fromSecond.status === 'match' || fromSecond.status === 'warning') {
+      notifyItem.status = 'relocated'
+      notifyItem.proforma = fromSecond.proforma
+      notifyItem.hbl = fromSecond.hbl
+      notifyItem.detail = 'En la proforma iba en Second Notify; en el HBL está en Notify. Correcto.'
+      secondFromProforma = blocks.length > 1 ? joinLines(blocks.slice(1).flat()) : ''
+    }
+  }
+
   const second = compareText({
     id: 'second-notify',
     group: 'Ajustes esperados',
     label: 'Second notify',
-    a: partyText(proforma.secondNotify),
+    a: notifyItem.status === 'relocated' ? secondFromProforma : partyText(proforma.secondNotify),
     b: partyText(hbl.secondNotify),
     mode: 'address',
   })
