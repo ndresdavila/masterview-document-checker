@@ -289,26 +289,31 @@ function parseContainersFromText(text) {
   }
 
   const blocks = parseCargoBlocks(upper)
-  if (containers.length === 1 && blocks.length > 1 && containers[0].pkgs == null) {
-    const sku = blocks.filter((b) => b.pkgs != null)
+  const cargoBlocks = (() => {
+    if (containers.length <= 1) return blocks
+    const per = blocks.filter((b) => b.pkgs != null && b.pkgs >= 100 && b.pkgs < 500)
+    return per.length === containers.length ? per : blocks
+  })()
+  if (containers.length === 1 && cargoBlocks.length > 1 && containers[0].pkgs == null) {
+    const sku = cargoBlocks.filter((b) => b.pkgs != null)
     const distinct = new Set(sku.map((b) => `${b.pkgs}|${str(b.description)}`)).size
     if (sku.length > 1 && distinct > 1) {
       containers[0].pkgs = sku.reduce((s, b) => s + b.pkgs, 0)
       containers[0].description = sku.map((b) => b.description).filter(Boolean).join(' ')
     } else {
-      const best = blocks.reduce((a, b) => ((b.pkgs || 0) > (a.pkgs || 0) ? b : a))
+      const best = cargoBlocks.reduce((a, b) => ((b.pkgs || 0) > (a.pkgs || 0) ? b : a))
       containers[0].pkgs = best.pkgs
       containers[0].description = best.description
       containers[0].netKg = best.netKg
       containers[0].grossKg = best.grossKg
     }
   } else {
-    const n = Math.min(containers.length, blocks.length)
+    const n = Math.min(containers.length, cargoBlocks.length)
     for (let i = 0; i < n; i += 1) {
-      if (containers[i].pkgs == null) containers[i].pkgs = blocks[i].pkgs
-      if (!containers[i].description) containers[i].description = blocks[i].description
-      if (containers[i].netKg == null) containers[i].netKg = blocks[i].netKg
-      if (containers[i].grossKg == null) containers[i].grossKg = blocks[i].grossKg
+      if (containers[i].pkgs == null) containers[i].pkgs = cargoBlocks[i].pkgs
+      if (!containers[i].description) containers[i].description = cargoBlocks[i].description
+      if (containers[i].netKg == null) containers[i].netKg = cargoBlocks[i].netKg
+      if (containers[i].grossKg == null) containers[i].grossKg = cargoBlocks[i].grossKg
     }
   }
   const complete = containers.filter((c) => c.pkgs != null)
