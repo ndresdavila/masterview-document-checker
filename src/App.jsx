@@ -174,7 +174,7 @@ export default function App() {
             <DropPanel
               side="proforma"
               title="Proforma"
-              hint="Archivo Excel o Word de proforma"
+              hint="Archivo de proforma (Excel o Word)"
               accept=".xls,.xlsx,.docx"
               file={proformaFile}
               doc={proforma}
