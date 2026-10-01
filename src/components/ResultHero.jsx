@@ -83,6 +83,9 @@ export default function ResultHero({ result }) {
             {counts.mismatch ? 'Incongruencias detectadas' : 'Sin incongruencias'}
           </h3>
           <p className="mt-1 text-sm text-muted">{parts.join('. ')}.</p>
+          {result.carrier ? (
+            <p className="mt-1 text-xs text-muted">Naviera detectada: {String(result.carrier).toUpperCase()}</p>
+          ) : null}
         </div>
       </div>
 

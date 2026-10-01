@@ -20,12 +20,19 @@ export default function DropPanel({
     if (doc.bookingNo) chips.push(`BKG ${doc.bookingNo}`)
     if (doc.voyage) chips.push(doc.voyage)
   }
+  if (doc?.kind === 'mbl') {
+    if (doc.carrier) chips.push(String(doc.carrier).toUpperCase())
+    if (doc.blNo) chips.push(doc.blNo)
+    if (doc.containers?.length) chips.push(`${doc.containers.length} contenedores`)
+  }
 
   return (
     <section className="paper-card flex min-h-[240px] flex-col p-4">
       <div className="mb-3 flex items-baseline justify-between gap-3">
         <h2 className="text-base font-semibold text-navy">{title}</h2>
-        <span className="text-xs text-muted">{side === 'proforma' ? 'Excel / Word' : 'PDF / Word'}</span>
+        <span className="text-xs text-muted">
+          {side === 'proforma' ? 'Excel / Word' : side === 'mbl' ? 'PDF naviera' : 'PDF / Word'}
+        </span>
       </div>
 
       <label

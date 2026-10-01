@@ -2,13 +2,13 @@ import * as pdfjs from 'pdfjs-dist'
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import mammoth from 'mammoth'
 import { parseHblFromPdfWords, parseHblFromPlainText, parseProformaFromPlainText } from './parseHbl.js'
+import { parseMblFromPdfPages } from './parseMbl.js'
 
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl
 
-export async function parseHblPdf(buffer, fileName) {
+async function extractPdfPages(buffer) {
   const pdf = await pdfjs.getDocument({ data: new Uint8Array(buffer) }).promise
-  let page1Words = []
-  const extra = []
+  const pages = []
   for (let n = 1; n <= pdf.numPages; n += 1) {
     const page = await pdf.getPage(n)
     const viewport = page.getViewport({ scale: 1 })
@@ -20,10 +20,23 @@ export async function parseHblPdf(buffer, fileName) {
         x: it.transform[4],
         y: viewport.height - it.transform[5],
       }))
-    if (n === 1) page1Words = words
-    else extra.push(words.map((w) => w.str).join(' '))
+    pages.push({
+      words,
+      text: words.map((w) => w.str).join(' '),
+    })
   }
-  return parseHblFromPdfWords(page1Words, fileName, extra.join('\n'))
+  return pages
+}
+
+export async function parseHblPdf(buffer, fileName) {
+  const pages = await extractPdfPages(buffer)
+  const extra = pages.slice(1).map((p) => p.text).join('\n')
+  return parseHblFromPdfWords(pages[0]?.words || [], fileName, extra)
+}
+
+export async function parseMblPdf(buffer, fileName) {
+  const pages = await extractPdfPages(buffer)
+  return parseMblFromPdfPages(pages, fileName)
 }
 
 export async function parseHblDocx(buffer, fileName) {

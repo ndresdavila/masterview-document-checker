@@ -3,11 +3,16 @@ const STATUS = {
   mismatch: { label: 'Incongruencia', className: 'bg-bad-soft text-bad' },
   warning: { label: 'Aviso', className: 'bg-warn-soft text-warn' },
   relocated: { label: 'Ajuste', className: 'bg-info-soft text-info' },
-  extra: { label: 'Solo HBL', className: 'bg-paper-2 text-muted' },
+  extra: { label: 'Solo derecho', className: 'bg-paper-2 text-muted' },
 }
 
-export default function FieldCard({ item }) {
-  const meta = STATUS[item.status] || STATUS.extra
+export default function FieldCard({ item, captions }) {
+  const leftCaption = captions?.left || 'Proforma'
+  const rightCaption = captions?.right || 'HBL'
+  const extraLabel = captions?.extra || 'Solo HBL'
+  const meta = item.status === 'extra'
+    ? { label: extraLabel, className: 'bg-paper-2 text-muted' }
+    : (STATUS[item.status] || STATUS.extra)
   const bar =
     item.status === 'mismatch'
       ? 'bg-bad'
@@ -29,8 +34,8 @@ export default function FieldCard({ item }) {
         </span>
       </div>
       <div className="mt-3 grid gap-3 pl-2 sm:grid-cols-2">
-        <ValueBlock caption="Proforma" value={item.proforma} />
-        <ValueBlock caption="HBL" value={item.hbl} />
+        <ValueBlock caption={leftCaption} value={item.proforma} />
+        <ValueBlock caption={rightCaption} value={item.hbl} />
       </div>
       {item.detail ? <p className="mt-3 pl-2 text-xs text-muted">{item.detail}</p> : null}
     </article>

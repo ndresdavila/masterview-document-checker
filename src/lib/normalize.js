@@ -23,6 +23,8 @@ export function softenAddress(value) {
   return canon(value)
     .replace(/\b(DE LA|DEL|DE LOS|DE LAS|DE|LA|EL|LOS|LAS|THE|AND|Y)\b/g, ' ')
     .replace(/\bSUIT\b/g, 'SUITE')
+    .replace(/\bCORABASOS\b/g, 'CORABASTOS')
+    .replace(/\bCORABATOS\b/g, 'CORABASTOS')
     .replace(/\s+/g, ' ')
     .trim()
 }
@@ -66,7 +68,7 @@ export function parseNumber(value) {
   return m ? Number(m[0]) : null
 }
 
-export function numbersClose(a, b, tol = 0.051) {
+export function numbersClose(a, b, tol = 0.51) {
   const na = parseNumber(a)
   const nb = parseNumber(b)
   if (na == null || nb == null) return false
@@ -223,12 +225,15 @@ export function vesselsMatch(a, b) {
 }
 
 export function portsMatch(a, b) {
-  if (joinersConflict(a, b)) return false
   const A = portCanon(a)
   const B = portCanon(b)
   if (!A || !B) return false
+  if (joinersConflict(a, b) && !(/\b(GUAYAQUIL|BUENAVENTURA|NEW YORK|OAKLAND|HALIFAX|SAVANNAH|PHILADELPHIA)\b/.test(A) && /\b(GUAYAQUIL|BUENAVENTURA|NEW YORK|OAKLAND|HALIFAX|SAVANNAH|PHILADELPHIA)\b/.test(B))) {
+    return false
+  }
   if (A === B) return true
   if (/\bSAVANNAH\b/.test(A) && /\bSAVANNAH\b/.test(B)) return true
+  if (/\bOAKLAND\b/.test(A) && /\bOAKLAND\b/.test(B)) return true
   if (A.includes(B) || B.includes(A)) return true
   return similar(A, B) >= 0.86
 }
@@ -265,6 +270,23 @@ export function extractBooking(text) {
   const raw = str(text).toUpperCase()
   const m = raw.match(BOOKING_RE)
   return m ? m[1].replace(/\s+/g, '') : ''
+}
+
+export function bookingCanon(value) {
+  return canon(str(value).replace(/\/\d+$/, ''))
+    .replace(/\s+/g, '')
+    .replace(/^ONEY/, '')
+}
+
+export function bookingsMatch(a, b) {
+  const A = bookingCanon(a)
+  const B = bookingCanon(b)
+  if (!A || !B) return false
+  if (A === B) return true
+  if (A.length >= 8 && B.length >= 8 && (A.includes(B) || B.includes(A))) return true
+  const dA = A.replace(/\D/g, '')
+  const dB = B.replace(/\D/g, '')
+  return dA.length >= 8 && dA === dB
 }
 
 export function hsMatch(a, b) {

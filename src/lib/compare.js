@@ -15,6 +15,7 @@ import {
   hsMatch,
   lotesMatch,
   sealsMatch,
+  bookingsMatch,
 } from './normalize.js'
 
 function bagsTotal(doc) {
@@ -625,6 +626,344 @@ export function compareDocs(proforma, hbl) {
   return {
     score,
     items: visible,
+    counts: {
+      match: matches.length,
+      mismatch: mismatches.length,
+      warning: warnings.length,
+      expected: expected.length,
+    },
+  }
+}
+
+function isNvoccParty(party) {
+  const t = partyText(party).toUpperCase()
+  return /MASTERVIEW|UCC LOGISTICS|UCC AMERICA|UCCLOG/.test(t)
+}
+
+function isHouseBl(value) {
+  return /^ULGO/i.test(str(value))
+}
+
+function isMasterBl(value) {
+  return /^(ZIMU|ONEY|COSU)/i.test(str(value))
+}
+
+function partyPlain(party) {
+  return partyText(party)
+    .replace(/RUC:?\s*\d+/gi, ' ')
+    .replace(/\bCORABASOS\b/g, 'CORABASTOS')
+    .replace(/\bCORABATOS\b/g, 'CORABASTOS')
+    .replace(/[-,]/g, ' ')
+    .replace(/\bSH>\s*$/i, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function partyCompare(id, label, left, right) {
+  const item = compareText({
+    id,
+    group: 'Partes',
+    label,
+    a: partyPlain(left),
+    b: partyPlain(right),
+    mode: 'address',
+  })
+  if (item.status === 'mismatch' && isNvoccParty(right) && !isNvoccParty(left)) {
+    item.status = 'relocated'
+    item.detail = 'El MBL lleva a Masterview / UCC (master); el HBL lleva al exportador o comprador. Correcto.'
+  }
+  if (item.status === 'mismatch') {
+    const sa = softenAddress(partyPlain(left))
+    const sb = softenAddress(partyPlain(right))
+    if (sa && sb && similar(sa, sb) >= 0.82) {
+      item.status = 'match'
+      item.detail = 'Misma parte, redacción equivalente'
+    } else if (/SUDESPENSA/i.test(sa) && /SUDESPENSA/i.test(sb)) {
+      item.status = 'match'
+      item.detail = 'Misma parte, redacción equivalente'
+    }
+  }
+  if (item.status === 'mismatch' && isNvoccParty(left) && isNvoccParty(right)) {
+    const ok = similar(softenAddress(partyText(left)), softenAddress(partyText(right))) >= 0.62
+    if (ok) {
+      item.status = 'match'
+      item.detail = 'Misma parte NVOCC, redacción equivalente'
+    }
+  }
+  return item
+}
+
+export function compareHblMbl(hbl, mbl) {
+  const items = []
+  const wordingRight = 'MBL'
+
+  items.push(
+    partyCompare('shipper', 'Shipper', hbl.shipper, mbl.shipper),
+    partyCompare('consignee', 'Consignee', hbl.consignee, mbl.consignee),
+    partyCompare('notify', 'Notify party', hbl.notify, mbl.notify),
+  )
+
+  const booking = compareText({
+    id: 'booking',
+    group: 'Transporte',
+    label: 'Booking',
+    a: hbl.bookingNo,
+    b: mbl.bookingNo,
+  })
+  if (booking.proforma !== '—' && booking.hbl !== '—' && bookingsMatch(hbl.bookingNo, mbl.bookingNo)) {
+    booking.status = 'match'
+    booking.detail = 'Mismo booking'
+  }
+  items.push(booking)
+
+  const bl = compareText({
+    id: 'bl',
+    group: 'Transporte',
+    label: 'Bill of lading',
+    a: hbl.blNo,
+    b: mbl.blNo,
+    note: 'El MBL usa el número de la naviera',
+  })
+  if (bl.proforma !== '—' && bl.hbl !== '—') {
+    if (canon(hbl.blNo) === canon(mbl.blNo) || bookingsMatch(hbl.blNo, mbl.blNo)) {
+      bl.status = 'match'
+      bl.detail = 'Coincide'
+    } else if (isHouseBl(hbl.blNo) && isMasterBl(mbl.blNo)) {
+      bl.status = 'relocated'
+      bl.detail = 'House vs master: numeración distinta por diseño.'
+    }
+  }
+  items.push(bl)
+
+  items.push(
+    compareText({
+      id: 'vessel',
+      group: 'Transporte',
+      label: 'Buque',
+      a: hbl.vessel,
+      b: mbl.vessel,
+      mode: 'vessel',
+    }),
+    compareText({
+      id: 'voyage',
+      group: 'Transporte',
+      label: 'Voyage',
+      a: hbl.voyage,
+      b: mbl.voyage,
+      mode: 'voyage',
+    }),
+    compareText({
+      id: 'pol',
+      group: 'Transporte',
+      label: 'Puerto de carga',
+      a: hbl.portLoading,
+      b: mbl.portLoading,
+      mode: 'port',
+    }),
+    compareText({
+      id: 'pod',
+      group: 'Transporte',
+      label: 'Puerto de descarga',
+      a: hbl.portDischarge,
+      b: mbl.portDischarge,
+      mode: 'port',
+    }),
+    compareText({
+      id: 'lote',
+      group: 'Carga y marcas',
+      label: 'Lote',
+      a: hbl.marks?.lote,
+      b: mbl.marks?.lote,
+      mode: 'lote',
+    }),
+  )
+
+  const marks = compareText({
+    id: 'marks',
+    group: 'Carga y marcas',
+    label: 'Marcas',
+    a: cleanMarks(hbl.marks?.text),
+    b: cleanMarks(mbl.marks?.text),
+    mode: 'address',
+  })
+  const mblMarks = str(mbl.marks?.text)
+  const hblMarksEmpty = marks.proforma === '—'
+  const mblMarksEmpty = marks.hbl === '—' || /^N\/M$/i.test(mblMarks) || /^N\/M$/i.test(cleanMarks(mbl.marks?.text))
+  if (hblMarksEmpty && mblMarksEmpty) {
+    marks.status = 'skip'
+  } else if (marks.status === 'mismatch' && !hblMarksEmpty && mblMarksEmpty) {
+    marks.status = 'warning'
+    marks.detail = 'El MBL no detalla marcas (N/M o casilla de naviera)'
+  } else if (marks.status === 'mismatch' && hblMarksEmpty && !mblMarksEmpty) {
+    marks.status = 'extra'
+    marks.detail = 'Solo aparece en el MBL'
+  }
+  items.push(marks)
+
+  const containerItems = matchContainers(hbl.containers, mbl.containers)
+  containerItems.forEach((item) => {
+    if (item.detail === 'No está en el HBL') item.detail = `No está en el ${wordingRight}`
+    if (item.detail === 'Aparece en el HBL y no en la proforma') {
+      item.label = `Contenedor extra en el ${wordingRight}`
+      item.detail = `Aparece en el ${wordingRight} y no en el HBL`
+    }
+    if (item.detail === 'Falta en el HBL') item.detail = `Falta en el ${wordingRight}`
+    if (item.detail === 'Solo aparece en el HBL') item.detail = `Solo aparece en el ${wordingRight}`
+  })
+  items.push(...containerItems)
+
+  items.push(
+    compareText({
+      id: 'bags',
+      group: 'Totales y referencias',
+      label: 'Total bultos',
+      a: bagsTotal(hbl),
+      b: bagsTotal(mbl),
+      mode: 'number',
+    }),
+    compareText({
+      id: 'net',
+      group: 'Totales y referencias',
+      label: 'Peso neto',
+      a: hbl.totals?.netKg,
+      b: mbl.totals?.netKg,
+      mode: 'number',
+    }),
+    compareText({
+      id: 'gross',
+      group: 'Totales y referencias',
+      label: 'Peso bruto',
+      a: hbl.totals?.grossKg,
+      b: mbl.totals?.grossKg,
+      mode: 'number',
+    }),
+    compareText({
+      id: 'cbm',
+      group: 'Totales y referencias',
+      label: 'Medida CBM',
+      a: hbl.totals?.cbm,
+      b: mbl.totals?.cbm,
+      mode: 'number',
+    }),
+    compareText({
+      id: 'hs',
+      group: 'Totales y referencias',
+      label: 'HS code',
+      a: hbl.refs?.hsCode,
+      b: mbl.refs?.hsCode,
+      mode: 'hs',
+    }),
+    compareText({
+      id: 'fda',
+      group: 'Totales y referencias',
+      label: 'FDA',
+      a: hbl.refs?.fda,
+      b: mbl.refs?.fda,
+      mode: 'ref',
+    }),
+    compareText({
+      id: 'dae',
+      group: 'Totales y referencias',
+      label: 'DAE',
+      a: hbl.refs?.dae,
+      b: mbl.refs?.dae,
+      mode: 'ref',
+    }),
+    compareText({
+      id: 'contract',
+      group: 'Totales y referencias',
+      label: 'Contract',
+      a: hbl.refs?.contract,
+      b: mbl.refs?.contract,
+      mode: 'contract',
+    }),
+  )
+
+  items.forEach((item) => {
+    if (['contract', 'hs', 'fda', 'dae'].includes(item.id) && item.proforma === '—' && item.hbl !== '—' && item.status === 'mismatch') {
+      item.status = 'extra'
+      item.detail = 'Solo aparece en el MBL'
+    }
+    if (item.id?.includes('-desc') && item.status === 'mismatch') {
+      const left = cleanMarks(item.proforma)
+      const right = str(item.hbl)
+      if ((!left || left === '—') && right) {
+        item.status = 'extra'
+        item.detail = 'Descripción detallada en el MBL'
+      } else if (/COCOA|BEANS|CACAO/i.test(left) && /COCOA|BEANS|CACAO/i.test(right)) {
+        item.status = 'match'
+        item.detail = 'Misma mercancía'
+      } else if (left && /(?:BOXES|CARTONS|BAGS)/i.test(right) && /COCOA|ATUN|PESCADO|CONSERVAS|BEANS|CAJAS|LOMITOS/i.test(left)) {
+        item.status = 'match'
+        item.detail = 'Misma mercancía'
+      }
+    }
+    if ((item.id === 'pol' || item.id === 'pod') && item.status === 'mismatch') {
+      const cities = /GUAYAQUIL|BUENAVENTURA|NEW YORK|OAKLAND|HALIFAX|SAVANNAH|PHILADELPHIA|POSORJA|MANTA/
+      const A = String(item.proforma).toUpperCase()
+      const B = String(item.hbl).toUpperCase()
+      const hit = A.match(cities)?.[0]
+      if (hit && B.includes(hit)) {
+        item.status = 'match'
+        item.detail = 'Equivalente'
+      }
+    }
+    if (['net', 'cbm'].includes(item.id) && item.status === 'mismatch' && item.hbl === '—') {
+      item.status = 'warning'
+      item.detail = 'No aparece en el MBL'
+    }
+    if (item.id === 'dae' && item.status === 'mismatch' && item.proforma !== '—' && item.hbl !== '—') {
+      const A = str(hbl.refs?.dae).replace(/\s/g, '')
+      const B = str(mbl.refs?.dae).replace(/\s/g, '')
+      if (A && B && (A.startsWith(B) || B.startsWith(A))) {
+        item.status = 'match'
+        item.detail = 'Mismo DAE'
+      }
+    }
+    if (item.id?.includes('-net') && item.status === 'mismatch' && item.hbl === '—') {
+      item.status = 'warning'
+      item.detail = 'El MBL no desglosa el neto de este contenedor'
+    }
+    if (item.detail === 'Falta en el HBL') item.detail = `Falta en el ${wordingRight}`
+    if (item.detail === 'Solo aparece en el HBL') item.detail = `Solo aparece en el ${wordingRight}`
+    if (item.detail === 'Dato asignado en el HBL') item.detail = `Dato asignado en el ${wordingRight}`
+    if (item.detail === 'El HBL trae buque; la celda Vessel de la proforma está vacía') {
+      item.detail = 'El MBL trae buque; el HBL no'
+    }
+    if (item.detail === 'El HBL trae voyage; la celda de la proforma está vacía') {
+      item.detail = 'El MBL trae voyage; el HBL no'
+    }
+    if (item.detail === 'No aparece en la carátula del HBL') {
+      item.detail = `No aparece en el ${wordingRight}`
+    }
+  })
+
+  const freightBits = [mbl.extras?.freightCollect && 'FREIGHT COLLECT', mbl.extras?.shippedOnBoard && 'SHIPPED ON BOARD']
+    .filter(Boolean)
+  items.push({
+    id: 'freight-collect',
+    group: 'Ajustes esperados',
+    label: 'FREIGHT COLLECT / SHIPPED ON BOARD',
+    proforma: 'Propio del HBL / MBL',
+    hbl: freightBits.join('\n') || '—',
+    status: freightBits.length ? 'extra' : 'skip',
+    detail: 'Frases de la naviera. No se contrastan como incongruencia.',
+  })
+
+  const visible = items.filter((i) => i.status !== 'skip')
+  const mismatches = visible.filter((i) => i.status === 'mismatch')
+  const warnings = visible.filter((i) => i.status === 'warning')
+  const matches = visible.filter((i) => i.status === 'match')
+  const expected = visible.filter((i) => i.status === 'relocated' || i.status === 'extra')
+  const scored = visible.filter((i) => ['match', 'mismatch', 'warning', 'relocated'].includes(i.status))
+  const good = scored.filter((i) => i.status === 'match' || i.status === 'relocated').length
+  const score = scored.length ? Math.round((good / scored.length) * 100) : 0
+
+  return {
+    score,
+    items: visible,
+    carrier: mbl.carrier || '',
+    pair: 'hbl-mbl',
     counts: {
       match: matches.length,
       mismatch: mismatches.length,
