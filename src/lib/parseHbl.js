@@ -134,8 +134,11 @@ function parseLabeledRefs(text) {
     || text.match(/FDA(?:\s*NUMBER)?\s*:?\s*([0-9]{8,})/i)?.[1]
     || ''
   const dae = (text.match(/D\.?A\.?E\.?:?\s*#?\s*['"]?([0-9][0-9\s-]{10,}[0-9])/i)?.[1] || '').replace(/\s+/g, '')
-  let contract = text.match(/CONTRATO:\s*([A-Z0-9._-]+)/i)?.[1]
+  let contract = text.match(/CONTRATO#?:?\s*([A-Z0-9._-]+)/i)?.[1]
     || text.match(/CONTRACT#:\s*([A-Z0-9._-]+(?:\s+[A-Z]\b)?)/i)?.[1]
+    || text.match(/\bCO\.\s*(P\d[\d.]+)/i)?.[1]
+    || text.match(/\bPO:\s*(P\d[\d.]+)/i)?.[1]
+    || text.match(/\b(P0\d{4}(?:\.\d+)?)\b/i)?.[1]
     || ''
   if (/^(FREIGHT|SHIPPED|COLLECT|PREPAID|EXPRESS)$/i.test(contract)) contract = ''
   return { hsCode: hs, fda, dae, contract }

@@ -80,6 +80,8 @@ function cleanMarks(text) {
     .replace(/\b(?:PRODUCT\s+)?OF ECUADOR\b/gi, ' ')
     .replace(/\b(?:CERTIFIED\s+)?(?:TYPE\s+)?GRADE\s+\d(?:\s+RFA)?/gi, ' ')
     .replace(/\bDAE:?\s*[\d-]+/gi, ' ')
+    .replace(/\bFREIGHT COLLECT\b/gi, ' ')
+    .replace(/\bSHIPPED ON BOARD\b/gi, ' ')
     .replace(/\b028-\d{4}-\d{2}-\d+/g, ' ')
     .replace(/\bLOTE#?\s*[A-Z0-9-]+/gi, ' ')
     .replace(/\b(?:NEW YORK|PHILADELPHIA|OAKLAND|UNITED STATES|USA)\b/gi, ' ')

@@ -132,16 +132,29 @@ function textIn(words, box) {
 }
 
 function lastKnKb(chunk) {
-  const nets = [...str(chunk).matchAll(/([\d.,]+)\s*(?:K\.?\s*N|KN)\b/gi)]
+  const nets = [...str(chunk).matchAll(/([\d.,]+)\s*(?:K\.?\s*N|KN|N\.?\s*W)\b/gi)]
     .map((m) => parseNumber(m[1]))
     .filter((n) => n != null && n >= 8000 && n < 40000)
-  const grosses = [...str(chunk).matchAll(/([\d.,]+)\s*(?:K\.?\s*B|KB)\b/gi)]
+  const grosses = [...str(chunk).matchAll(/([\d.,]+)\s*(?:K\.?\s*B|KB|G\.?\s*W)\b/gi)]
     .map((m) => parseNumber(m[1]))
     .filter((n) => n != null && n >= 8000 && n < 40000)
   return {
     netKg: nets.length ? nets[nets.length - 1] : null,
     grossKg: grosses.length ? grosses[grosses.length - 1] : null,
   }
+}
+
+function parseTotalWeightKg(text, kind) {
+  const re = kind === 'net'
+    ? /TOTAL\s+NET\s+WEIGHT:?\s*([\d.,]+)\s*(MTS?|MT|KGS?|KILOS?)?/i
+    : /TOTAL\s+GROSS\s+WEIGHT:?\s*([\d.,]+)\s*(MTS?|MT|KGS?|KILOS?)?/i
+  const m = str(text).match(re)
+  if (!m) return null
+  const n = parseNumber(m[1])
+  if (n == null) return null
+  const unit = str(m[2]).toUpperCase()
+  if (/^MTS?$|^MT$|^TONS?$/.test(unit) && n < 500) return n * 1000
+  return n
 }
 
 function parseZimContainers(text) {
@@ -158,15 +171,19 @@ function parseZimContainers(text) {
       .map((x) => parseNumber(x[1]))
       .filter((n) => n != null && n >= 50 && n < 500)
     const weights = lastKnKb(gap)
-    const labeledNet = parseNumber(after.match(/(?<!TOTAL )NET WEIGHT:\s*([\d.,]+)/i)?.[1])
-    const labeledGross = parseNumber(after.match(/(?<!TOTAL )GROSS WEIGHT:\s*([\d.,]+)/i)?.[1])
+    const gapNet = parseNumber(gap.match(/(?<!TOTAL )NET WEIGHT:\s*([\d.,]+)/i)?.[1])
+    const gapGross = parseNumber(gap.match(/(?<!TOTAL )GROSS WEIGHT:\s*([\d.,]+)/i)?.[1])
+    const afterNet = parseNumber(after.match(/(?<!TOTAL )NET WEIGHT:\s*([\d.,]+)/i)?.[1])
+    const afterGross = parseNumber(after.match(/(?<!TOTAL )GROSS WEIGHT:\s*([\d.,]+)/i)?.[1])
+    const labeledNet = (gapNet != null && gapNet < 40000) ? gapNet : (afterNet != null && afterNet < 40000 ? afterNet : null)
+    const labeledGross = (gapGross != null && gapGross < 40000) ? gapGross : (afterGross != null && afterGross < 40000 ? afterGross : null)
     const bagsAfter = [...after.matchAll(/(\d{2,4})\s+BAGS\b/g)]
       .map((x) => parseNumber(x[1]))
       .filter((n) => n != null && n >= 50 && n < 500)
     const seals = [...after.matchAll(/SEAL:\s*([A-Z0-9]+)/gi)].map((x) => x[1])
     const extra = sealTokens(after.split(/BAGS OF|MARCAS|SHIPPER'S LOAD|CONT TARE/)[0])
-    const netKg = weights.netKg ?? (labeledNet != null && labeledNet < 40000 ? labeledNet : null)
-    const grossKg = weights.grossKg ?? (labeledGross != null && labeledGross < 40000 ? labeledGross : null)
+    const netKg = labeledNet ?? weights.netKg
+    const grossKg = labeledGross ?? weights.grossKg
     containers.push({
       id,
       seal: [...new Set([...seals, ...extra])].join(', '),
@@ -238,7 +255,7 @@ function parseCoscoContainers(text) {
       cbm: parseNumber(m[6]),
     })
   }
-  const blockRe = /CONTAINER:\s*([A-Z]{4}\d{7})?([\s\S]*?)(?=CONTAINER:|SAY |DECLARED CARGO|MARKS FDA|-{10,}|OCEAN FREIGHT COLLECT|$)/gi
+  const blockRe = /CONTAINER:\s*([A-Z]{4}\d{7})?([\s\S]*?)(?=CONTAINER:|MARKS FDA|-{10,}|OCEAN FREIGHT COLLECT|$)/gi
   while ((m = blockRe.exec(t))) {
     const chunk = `${m[1] || ''} ${m[2]}`
     const id = extractIsoId(chunk)
@@ -267,6 +284,11 @@ function parseCoscoContainers(text) {
   if (knownNet.length && knownNet.length === containers.length - 1 && new Set(knownNet).size === 1) {
     containers.forEach((c) => { if (c.netKg == null) c.netKg = knownNet[0] })
   }
+  containers.forEach((c) => {
+    if (c.netKg != null || c.pkgs == null) return
+    const twin = containers.find((o) => o.id !== c.id && o.pkgs === c.pkgs && o.netKg != null)
+    if (twin) c.netKg = twin.netKg
+  })
   return containers
 }
 
@@ -418,22 +440,35 @@ function parseCosco(text, fileName) {
   const refs = parseRefs(t)
   const headerTot = t.match(/(\d+)X40HQ CONTAINER\s+([\d.]+)KGS\s+([\d.]+)CBM/i)
   const summedNet = containers.reduce((s, c) => s + (c.netKg || 0), 0)
-  const totalNet = (() => {
-    const labeled = parseNumber(t.match(/\bNW:\s*([\d.,]+)/i)?.[1])
-    if (summedNet > 1000 && labeled && summedNet > labeled * 1.4) return summedNet
-    return labeled || (summedNet > 1000 ? summedNet : null)
-  })()
-  const totalGross = parseNumber(t.match(/\bGW:\s*([\d.,]+)/i)?.[1])
-    || parseNumber(headerTot?.[2])
-    || parseNumber(t.match(/TOTAL GROSS WEIGHT:\s*([\d.,]+)/i)?.[1])
+  const summedGross = containers.reduce((s, c) => s + (c.grossKg || 0), 0)
+  const pickTotal = (labeled, summed) => {
+    if (summed > 1000 && labeled && summed > labeled * 1.4) return summed
+    return labeled || (summed > 1000 ? summed : null)
+  }
+  const totalNet = pickTotal(
+    parseTotalWeightKg(t, 'net') || parseNumber(t.match(/\bNW:\s*([\d.,]+)/i)?.[1]),
+    summedNet,
+  )
+  const totalGross = pickTotal(
+    parseTotalWeightKg(t, 'gross')
+      || parseNumber(t.match(/\bGW:\s*([\d.,]+)/i)?.[1])
+      || parseNumber(headerTot?.[2]),
+    summedGross,
+  )
   const cbm = parseNumber(headerTot?.[3])
     || containers.reduce((s, c) => s + (c.cbm || 0), 0)
     || null
   const bags = containers.every((c) => c.pkgs != null)
     ? containers.reduce((s, c) => s + c.pkgs, 0)
     : parseNumber(headerTot ? t.match(/CONTAINER:\s*(\d{3,5})\s+\dX40/i)?.[1] : null)
+  const lastBrandMarks = (() => {
+    const re = /(GLOBAL-COCOA|ECO-KAKAO|BURNEOEXPORT|K'?MEN|AGROARRIBA|JOHANSACORP|SAN GERARDO|OSELLA|GRANDSOUTH|AROMATIC|MOI FOODS|EXPORCAFE|MAQUITA|FUNDACION|NIRSA|SUDESPENSA)[\s\S]{0,80}?LOTE#?\s*[A-Z0-9-]+/gi
+    const all = [...t.matchAll(re)]
+    return all.length ? all[all.length - 1][0] : ''
+  })()
   const marks = t.match(/MARCAS:\s*([\s\S]{0,280}?)(?=OCEAN FREIGHT|SHIPPER'S LOAD|-{10,}|$)/i)?.[1]
     || t.match(/MARKS\s+FDA:[\s\S]{0,280}?(?=-{10,}|OCEAN FREIGHT|$)/i)?.[0]
+    || lastBrandMarks
     || ''
   return finish({
     carrier: 'cosco',
