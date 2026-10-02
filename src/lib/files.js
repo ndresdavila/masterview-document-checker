@@ -43,26 +43,29 @@ export function classifyFile(file, hint = '') {
   return 'unknown'
 }
 
+const PANEL_ROLES = new Set(['proforma', 'hbl', 'mbl', 'swb'])
+
 export async function parseDroppedFile(file, expected) {
   const named = classifyFile(file, expected)
   if (named === 'old-word') {
     throw new Error('El .doc antiguo no se puede leer. Use .docx o Excel.')
   }
-  if (expected === 'proforma' && named !== 'proforma') {
+  if (expected === 'proforma' && named !== 'proforma' && named !== 'swb') {
     throw new Error('La proforma tiene que ser Excel (.xls, .xlsx) o Word (.docx).')
   }
 
   const buffer = await file.arrayBuffer()
   const ext = extOf(file.name)
+  const role = PANEL_ROLES.has(expected) ? expected : named
 
-  if (named === 'swb' || expected === 'swb') {
+  if (role === 'swb') {
     if (ext === '.xls' || ext === '.xlsx') return parseSwbArrayBuffer(buffer, file.name)
     if (ext === '.pdf') return parseSwbPdf(buffer, file.name)
     if (ext === '.docx') return finalizeSwb(await parseHblDocx(buffer, file.name), file.name)
     throw new Error('El SWB tiene que ser PDF, Excel (.xls, .xlsx) o Word (.docx).')
   }
 
-  if (named === 'proforma') {
+  if (role === 'proforma') {
     if (ext === '.docx') return parseProformaDocx(buffer, file.name)
     if ((ext === '.xls' || ext === '.xlsx') && excelLooksLikeSwb(buffer)) {
       return parseSwbArrayBuffer(buffer, file.name)
@@ -70,7 +73,7 @@ export async function parseDroppedFile(file, expected) {
     return parseProformaArrayBuffer(buffer, file.name)
   }
   if (ext === '.pdf') {
-    if (named === 'mbl' || expected === 'mbl') return parseMblPdf(buffer, file.name)
+    if (role === 'mbl' || named === 'mbl') return parseMblPdf(buffer, file.name)
     return parseHblPdf(buffer, file.name)
   }
   if (expected === 'mbl') {

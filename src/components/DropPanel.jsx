@@ -31,8 +31,22 @@ export default function DropPanel({
     if (doc.containers?.length) chips.push(`${doc.containers.length} contenedores`)
   }
 
+  function takeDroppedFile(e) {
+    e.preventDefault()
+    e.stopPropagation()
+    const next = e.dataTransfer?.files?.[0]
+    if (next) onFile(next)
+  }
+
   return (
-    <section className="paper-card flex min-h-[240px] flex-col p-4">
+    <section
+      className="paper-card flex min-h-[240px] flex-col p-4"
+      onDragOver={(e) => {
+        e.preventDefault()
+        e.stopPropagation()
+      }}
+      onDrop={takeDroppedFile}
+    >
       <div className="mb-3 flex items-baseline justify-between gap-3">
         <h2 className="text-base font-semibold text-navy">{title}</h2>
         <span className="text-xs text-muted">

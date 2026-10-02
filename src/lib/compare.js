@@ -1026,7 +1026,7 @@ export function compareHblSwb(hbl, swb) {
     b: partyText(swb.secondNotify),
     mode: 'address',
   })
-  if (second.status === 'mismatch' && (second.hbl === '—' || /sucre arias|ucc logistics|panama, panama|place of delivery/i.test(String(second.hbl)))) {
+  if (second.status === 'mismatch' && (second.hbl === '—' || /sucre arias|ucc logistics|panama, panama|place of delivery|applicable\)|intended (port|transshipment)/i.test(String(second.hbl)))) {
     if (second.proforma === '—') {
       second.status = 'skip'
     } else {

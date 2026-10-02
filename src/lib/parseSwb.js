@@ -57,7 +57,7 @@ function collectCol(grid, { r0, r1, c, stop }) {
   return lines
 }
 
-const JUNK_PARTY = /^(country of origin|booking no\.?|shipper'?s ref\.?|f\/agent.*|scac:.*|carrier|second notify:?|notify party:?|consignee|shipper|ecuador|full address of place of (receipt|delivery)|intended (port|vessel|transshipment).*|containers?\s*&\s*seals|no\.?\s*of original.*|gross weight|measurement)$/i
+const JUNK_PARTY = /^(country of origin|booking no\.?|shipper'?s ref\.?|f\/agent.*|scac:.*|carrier|second notify:?|notify party:?|consignee|shipper|ecuador|full address of place of (receipt|delivery)|intended (port|vessel|transshipment).*|containers?\s*&\s*seals|no\.?\s*of original.*|gross weight|measurement|\(?if\s+applicable\)?\.?|applicable\))$/i
 
 function partyBlob(party) {
   return [(party?.name || ''), (party?.address || ''), ...((party?.lines) || [])].join(' ')
@@ -220,8 +220,15 @@ export function finalizeSwb(doc, fileName = '') {
   const consignee = trimPartyAtFormLabels(doc.consignee)
 
   const emptyParty = { name: '', address: '', lines: [] }
+  const formChromeParty = (party) => {
+    const t = partyBlob(party)
+    if (!t.trim()) return true
+    if (/intended (port|vessel|transshipment)|if applicable|full address of place of delivery|no\.?\s*of original bills/i.test(t)
+      && !/\b(llc|inc\.?|s\.a|logistics|international|company)\b/i.test(t)) return true
+    return false
+  }
   let notifyOut = isCarrierBox(notify) ? emptyParty : notify
-  let secondOut = isCarrierBox(second) ? emptyParty : second
+  let secondOut = isCarrierBox(second) || formChromeParty(second) ? emptyParty : second
   if (!(notifyOut?.name) && secondOut?.name && !isCarrierBox(secondOut)) {
     notifyOut = secondOut
     secondOut = emptyParty

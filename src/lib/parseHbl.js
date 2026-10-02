@@ -537,6 +537,16 @@ function labelAt(words, re, maxX = 360) {
   return words.find((w) => re.test(str(w.str)) && w.x < maxX) || null
 }
 
+function isPartyChrome(line) {
+  const t = str(line)
+  if (!t) return true
+  if (/^(shipper|consignee|carrier|notify party|second notify:?|country of origin|booking no\.?|shipper'?s ref\.?)$/i.test(t)) return true
+  if (/^(full address of place of (receipt|delivery)|intended (port|vessel|transshipment)|containers?\s*&\s*seals|no\.?\s*of original bills of lading|gross weight|measurement)$/i.test(t)) return true
+  if (/intended (port of transshipment|transshipments?\s+vessel)/i.test(t)) return true
+  if (/^\(?if\s+applicable\)?\.?$/i.test(t) || /^applicable\)$/i.test(t)) return true
+  return false
+}
+
 function parseHblFromPdfWords(words, fileName, extraText = '') {
   const W = 596
   const shipperLbl = labelAt(words, /^shipper$/i, 120)
@@ -544,16 +554,23 @@ function parseHblFromPdfWords(words, fileName, extraText = '') {
   const notifyLbl = labelAt(words, /^notify party$/i, 160)
   const secondLbl = words.find((w) => /^second notify:?$/i.test(str(w.str))) || null
   const preLbl = words.find((w) => /pre-carriage/i.test(str(w.str))) || null
+  const carrierLbl = words.find((w) => /^carrier$/i.test(str(w.str)) && w.x > 200) || null
+  const placeReceiptLbl = words.find((w) => /full address of place of receipt|^place of receipt/i.test(str(w.str))) || null
+  const transshipLbl = words.find((w) => /intended port of transshipment/i.test(str(w.str))) || null
   const shipperY = shipperLbl?.y ?? 55
   const consigneeY = consigneeLbl?.y ?? 118
   const notifyY = notifyLbl?.y ?? 170
-  const partiesBottom = preLbl?.y ?? 235
+  const bottomHits = [preLbl?.y, placeReceiptLbl?.y, transshipLbl?.y].filter((y) => y != null)
+  const partiesBottom = bottomHits.length ? Math.min(...bottomHits) : 235
   const secondX = secondLbl && secondLbl.x > 200 ? secondLbl.x - 8 : 280
+  const leftX1 = carrierLbl && carrierLbl.x > 200
+    ? Math.min(285, secondX, carrierLbl.x - 8)
+    : 285
 
-  const left = { x0: 0, x1: 285, y0: shipperY, y1: consigneeY - 2 }
+  const left = { x0: 0, x1: leftX1, y0: shipperY, y1: consigneeY - 2 }
   const booking = { x0: 285, x1: 430, y0: 55, y1: 95 }
   const bl = { x0: 430, x1: W, y0: 55, y1: 95 }
-  const consigneeBox = { x0: 0, x1: 285, y0: consigneeY, y1: notifyY - 2 }
+  const consigneeBox = { x0: 0, x1: leftX1, y0: consigneeY, y1: notifyY - 2 }
   const notifyBox = { x0: 0, x1: secondX, y0: notifyY, y1: partiesBottom - 2 }
   const secondBox = { x0: secondX, x1: W, y0: (secondLbl?.y ?? notifyY) - 4, y1: partiesBottom - 2 }
   const podBox = { x0: 290, x1: 430, y0: 250, y1: 300 }
@@ -561,7 +578,7 @@ function parseHblFromPdfWords(words, fileName, extraText = '') {
   const weightBox = { x0: 430, x1: W, y0: 315, y1: 360 }
   const useLayoutParties = Boolean(consigneeLbl && notifyLbl)
 
-  const shipperLines = textIn(words, left).filter((l) => !/^shipper$/i.test(l) && !/^consignee$/i.test(l) && !/copy non-negotiable/i.test(l))
+  const shipperLines = textIn(words, left).filter((l) => !isPartyChrome(l) && !/copy non-negotiable/i.test(l) && !/^ecuador$/i.test(l))
   const rucLine = shipperLines.find((l) => /R\.?U\.?C\.?/i.test(l))
   const ruc = rucLine?.match(/R\.?U\.?C\.?\s*:?\s*([0-9]{10,13})/i)?.[1] || ''
   const shipper = splitParty(shipperLines.filter((l) => !/^R\.?U\.?C\.?/i.test(l) && !/^shipper$/i.test(l)))
@@ -570,11 +587,11 @@ function parseHblFromPdfWords(words, fileName, extraText = '') {
   const bookingNo = extractBooking(textIn(words, booking).join(' '))
   const blNo = textIn(words, bl).join(' ').toUpperCase().match(BL_RE)?.[1] || ''
   const consignee = splitParty(
-    dropLeadingContacts(textIn(words, consigneeBox).filter((l) => !/^consignee$/i.test(l) && !/unless provided/i.test(l))),
+    dropLeadingContacts(textIn(words, consigneeBox).filter((l) => !isPartyChrome(l) && !/unless provided/i.test(l))),
   )
-  const notify = splitParty(startOfParty(textIn(words, notifyBox).filter((l) => !/^notify party$/i.test(l) && !/your cargo/i.test(l))))
+  const notify = splitParty(startOfParty(textIn(words, notifyBox).filter((l) => !isPartyChrome(l) && !/your cargo/i.test(l))))
   const secondNotify = splitParty(
-    textIn(words, secondBox).filter((l) => !/^second notify:?$/i.test(l) && !/your cargo/i.test(l)),
+    textIn(words, secondBox).filter((l) => !isPartyChrome(l) && !/your cargo/i.test(l)),
   )
 
   const vesselHeader = words.find((w) => /^vessel$/i.test(w.str))
@@ -652,9 +669,11 @@ function parseHblFromPdfWords(words, fileName, extraText = '') {
       : ((fromText.notify?.lines || []).join(' ').length > (notify.lines || []).join(' ').length + 15
         ? fromText.notify
         : notify),
-    secondNotify: (useLayoutParties && secondNotify.name) || secondNotify.name
+    secondNotify: secondLbl
       ? secondNotify
-      : fromText.secondNotify,
+      : ((useLayoutParties && secondNotify.name) || secondNotify.name
+        ? secondNotify
+        : fromText.secondNotify),
     vessel: vessel || fromText.vessel,
     voyage: voyage || fromText.voyage,
     portLoading: portLoading || fromText.portLoading,

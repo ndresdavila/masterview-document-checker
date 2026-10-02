@@ -56,19 +56,19 @@ export default function App() {
     setBusy((b) => ({ ...b, [side]: true }))
     try {
       const doc = await parseDroppedFile(file, side)
-      if (doc.kind === 'proforma') {
+      if (side === 'proforma') {
         setMode('proforma-hbl')
         setProformaFile(file)
         setProforma(doc)
         return
       }
-      if (doc.kind === 'mbl') {
+      if (side === 'mbl') {
         setMode('hbl-mbl')
         setMblFile(file)
         setMbl(doc)
         return
       }
-      if (doc.kind === 'swb') {
+      if (side === 'swb') {
         setMode('hbl-swb')
         setSwbFile(file)
         setSwb(doc)
@@ -85,12 +85,7 @@ export default function App() {
   }
 
   function onDropFile(side, file) {
-    const kind = classifyFile(file, side)
-    if (kind === 'proforma') loadSide('proforma', file)
-    else if (kind === 'mbl') loadSide('mbl', file)
-    else if (kind === 'swb') loadSide('swb', file)
-    else if (kind === 'hbl' || kind === 'old-word') loadSide('hbl', file)
-    else loadSide(side, file)
+    loadSide(side, file)
   }
 
   function resetAll() {
