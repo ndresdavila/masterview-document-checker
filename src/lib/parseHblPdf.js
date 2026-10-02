@@ -3,6 +3,7 @@ import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import mammoth from 'mammoth'
 import { parseHblFromPdfWords, parseHblFromPlainText, parseProformaFromPlainText } from './parseHbl.js'
 import { parseMblFromPdfPages } from './parseMbl.js'
+import { parseSwbFromPdfPages } from './parseSwb.js'
 
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl
 
@@ -32,6 +33,11 @@ export async function parseHblPdf(buffer, fileName) {
   const pages = await extractPdfPages(buffer)
   const extra = pages.slice(1).map((p) => p.text).join('\n')
   return parseHblFromPdfWords(pages[0]?.words || [], fileName, extra)
+}
+
+export async function parseSwbPdf(buffer, fileName) {
+  const pages = await extractPdfPages(buffer)
+  return parseSwbFromPdfPages(pages, fileName)
 }
 
 export async function parseMblPdf(buffer, fileName) {

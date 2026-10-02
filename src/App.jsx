@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import DropPanel from './components/DropPanel.jsx'
 import ResultHero from './components/ResultHero.jsx'
 import FieldCard from './components/FieldCard.jsx'
-import { compareDocs, compareHblMbl, GROUPS } from './lib/compare.js'
+import { compareDocs, compareHblMbl, compareHblSwb, GROUPS } from './lib/compare.js'
 import { parseDroppedFile, classifyFile } from './lib/files.js'
 
 const FILTERS = [
@@ -24,18 +24,31 @@ const MODES = [
     label: 'HBL → MBL',
     blurb: 'Comparación de HBL y MBL de la naviera (ZIM, COSCO u ONE).',
   },
+  {
+    id: 'hbl-swb',
+    label: 'HBL → SWB',
+    blurb: 'Comparación de HBL y Sea Waybill (PDF o Excel).',
+  },
 ]
+
+function dropHint(mode) {
+  if (mode === 'hbl-mbl') return 'mbl'
+  if (mode === 'hbl-swb') return ''
+  return 'proforma'
+}
 
 export default function App() {
   const [mode, setMode] = useState('proforma-hbl')
   const [proformaFile, setProformaFile] = useState(null)
   const [hblFile, setHblFile] = useState(null)
   const [mblFile, setMblFile] = useState(null)
+  const [swbFile, setSwbFile] = useState(null)
   const [proforma, setProforma] = useState(null)
   const [hbl, setHbl] = useState(null)
   const [mbl, setMbl] = useState(null)
-  const [busy, setBusy] = useState({ proforma: false, hbl: false, mbl: false })
-  const [errors, setErrors] = useState({ proforma: '', hbl: '', mbl: '' })
+  const [swb, setSwb] = useState(null)
+  const [busy, setBusy] = useState({ proforma: false, hbl: false, mbl: false, swb: false })
+  const [errors, setErrors] = useState({ proforma: '', hbl: '', mbl: '', swb: '' })
   const [filter, setFilter] = useState('all')
 
   async function loadSide(side, file) {
@@ -55,6 +68,12 @@ export default function App() {
         setMbl(doc)
         return
       }
+      if (doc.kind === 'swb') {
+        setMode('hbl-swb')
+        setSwbFile(file)
+        setSwb(doc)
+        return
+      }
       setHblFile(file)
       setHbl(doc)
     } catch (err) {
@@ -69,6 +88,7 @@ export default function App() {
     const kind = classifyFile(file, side)
     if (kind === 'proforma') loadSide('proforma', file)
     else if (kind === 'mbl') loadSide('mbl', file)
+    else if (kind === 'swb') loadSide('swb', file)
     else if (kind === 'hbl' || kind === 'old-word') loadSide('hbl', file)
     else loadSide(side, file)
   }
@@ -77,10 +97,12 @@ export default function App() {
     setProformaFile(null)
     setHblFile(null)
     setMblFile(null)
+    setSwbFile(null)
     setProforma(null)
     setHbl(null)
     setMbl(null)
-    setErrors({ proforma: '', hbl: '', mbl: '' })
+    setSwb(null)
+    setErrors({ proforma: '', hbl: '', mbl: '', swb: '' })
     setFilter('all')
   }
 
@@ -89,9 +111,13 @@ export default function App() {
       if (!hbl || !mbl) return null
       return compareHblMbl(hbl, mbl)
     }
+    if (mode === 'hbl-swb') {
+      if (!hbl || !swb) return null
+      return compareHblSwb(hbl, swb)
+    }
     if (!proforma || !hbl) return null
     return compareDocs(proforma, hbl)
-  }, [mode, proforma, hbl, mbl])
+  }, [mode, proforma, hbl, mbl, swb])
 
   const visible = useMemo(() => {
     if (!result) return []
@@ -105,15 +131,19 @@ export default function App() {
   useEffect(() => {
     if (!result) return
     setFilter(result.counts.mismatch ? 'mismatch' : 'all')
-  }, [proforma, hbl, mbl, mode])
+  }, [proforma, hbl, mbl, swb, mode])
 
   const captions = mode === 'hbl-mbl'
     ? { left: 'HBL', right: 'MBL', extra: 'Solo MBL' }
-    : { left: 'Proforma', right: 'HBL', extra: 'Solo HBL' }
+    : mode === 'hbl-swb'
+      ? { left: 'HBL', right: 'SWB', extra: 'Solo SWB' }
+      : { left: 'Proforma', right: 'HBL', extra: 'Solo HBL' }
 
   const readyHint = mode === 'hbl-mbl'
     ? 'Cargue HBL y MBL para comparar.'
-    : 'Cargue ambos archivos para comparar.'
+    : mode === 'hbl-swb'
+      ? 'Cargue HBL y SWB para comparar.'
+      : 'Cargue ambos archivos para comparar.'
 
   return (
     <div
@@ -123,10 +153,11 @@ export default function App() {
         e.preventDefault()
         const file = e.dataTransfer.files?.[0]
         if (!file) return
-        const kind = classifyFile(file, mode === 'hbl-mbl' ? 'mbl' : 'proforma')
+        const kind = classifyFile(file, dropHint(mode))
         if (kind === 'mbl') onDropFile('mbl', file)
+        else if (kind === 'swb') onDropFile('swb', file)
         else if (kind === 'hbl') onDropFile('hbl', file)
-        else onDropFile(kind === 'proforma' ? 'proforma' : mode === 'hbl-mbl' ? 'hbl' : 'proforma', file)
+        else onDropFile(kind === 'proforma' ? 'proforma' : mode === 'hbl-mbl' ? 'hbl' : mode === 'hbl-swb' ? 'hbl' : 'proforma', file)
       }}
     >
       <header className="mx-auto flex max-w-6xl flex-col gap-4 md:flex-row md:items-end md:justify-between">
@@ -148,7 +179,7 @@ export default function App() {
         </div>
       </header>
 
-      <div className="mx-auto mt-6 flex max-w-6xl gap-2">
+      <div className="mx-auto mt-6 flex max-w-6xl flex-wrap gap-2">
         {MODES.map((m) => (
           <button
             key={m.id}
@@ -207,7 +238,7 @@ export default function App() {
               busy={busy.hbl}
               onFile={(f) => onDropFile('hbl', f)}
             />
-          ) : (
+          ) : mode === 'hbl-mbl' ? (
             <DropPanel
               side="mbl"
               title="MBL"
@@ -218,6 +249,18 @@ export default function App() {
               error={errors.mbl}
               busy={busy.mbl}
               onFile={(f) => onDropFile('mbl', f)}
+            />
+          ) : (
+            <DropPanel
+              side="swb"
+              title="SWB"
+              hint="Sea Waybill (PDF o Excel)"
+              accept=".pdf,.xls,.xlsx,.docx"
+              file={swbFile}
+              doc={swb}
+              error={errors.swb}
+              busy={busy.swb}
+              onFile={(f) => onDropFile('swb', f)}
             />
           )}
         </div>

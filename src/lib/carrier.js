@@ -1,6 +1,12 @@
+export function looksLikeSwbName(name = '') {
+  const n = String(name).toUpperCase()
+  return /SEA\s*WAYBILL|\bSWB\b/.test(n)
+}
+
 export function looksLikeHblName(name = '') {
   const n = String(name).toUpperCase()
-  if (/HBL DRAFT|BL FLETADO|SEA WAYBILL|\bSWB\b/.test(n)) return true
+  if (looksLikeSwbName(name)) return false
+  if (/HBL DRAFT|BL FLETADO/.test(n)) return true
   if (/\bULGO\d/.test(n) && !/DRAFT[_\s-]*BL/.test(n)) return true
   return false
 }

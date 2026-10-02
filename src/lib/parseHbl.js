@@ -248,7 +248,8 @@ function parseContainersFromText(text) {
     const id = extractIsoId(chunk) || chunk.match(/^([A-Z]{3,4}\d{6,8})\b/)?.[1]
     if (!id) continue
     const afterId = chunk.slice(chunk.toUpperCase().indexOf(id) + id.length)
-    const sealZone = afterId.split(/BAGS OF|MARCAS|TOTAL BAGS|CONTAINER|CONTENEDOR/)[0]
+    const afterSeals = afterId.split(/SEALS?:|SELLOS?:/i)[1]
+    const sealZone = (afterSeals || afterId).split(/BAGS OF|MARCAS|TOTAL BAGS|CONTAINER|CONTENEDOR/)[0]
     const seals = sealTokens(sealZone.replace(/^\s*(SEALS?|SELLOS?):?\s*/i, ''))
     const beforeTotal = afterId.split(/TOTAL BAGS|TOTAL PACKAGES/)[0]
     const bagHitsNear = [...beforeTotal.matchAll(/(\d{3,4})\s+BAGS\b/gi)]

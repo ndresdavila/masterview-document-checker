@@ -71,8 +71,9 @@ function cleanMarks(text) {
       if (/\d+[.,]\d+\s*K\.?\s*[NB]\b/i.test(l)) return false
       if (/^product of ecuador$/i.test(l)) return false
       if (/total bags|total net|total gross|^hs code|^dae|^freight collect|freight\s*&\s*charges/i.test(l)) return false
-      if (/if no value|declared liability|clause \d|received by carrier|freight payable|shippers declared|in witness|place and date of issue|your cargo/i.test(l)) return false
+      if (/if no value|declared liability|clause \d|received by(?: the)? carrier|freight payable|shippers declared|in witness|place and date of issue|your cargo|special clauses|freight charges/i.test(l)) return false
       if (/^naviera:|^shipper:|^p\.a\s*:/i.test(l)) return false
+      if (/\bFREIGH COLLECT\b/i.test(l)) return false
       return true
     })
     .join(' ')
@@ -81,13 +82,24 @@ function cleanMarks(text) {
     .replace(/\b(?:CERTIFIED\s+)?(?:TYPE\s+)?GRADE\s+\d(?:\s+RFA)?/gi, ' ')
     .replace(/\bDAE:?\s*[\d-]+/gi, ' ')
     .replace(/\bFREIGHT COLLECT\b/gi, ' ')
+    .replace(/\bFREIGH COLLECT\b/gi, ' ')
     .replace(/\bSHIPPED ON BOARD\b/gi, ' ')
     .replace(/\b028-\d{4}-\d{2}-\d+/g, ' ')
     .replace(/\bLOTE#?\s*[A-Z0-9-]+/gi, ' ')
     .replace(/\b(?:NEW YORK|PHILADELPHIA|OAKLAND|UNITED STATES|USA)\b/gi, ' ')
+    .replace(/\bSPECIAL CLAUSES\b[\s\S]*$/i, ' ')
+    .replace(/\bFREIGHT CHARGES\b[\s\S]*$/i, ' ')
+    .replace(/\bRECEIVED BY THE CARRIER\b[\s\S]*$/i, ' ')
+    .replace(/\bunless otherwise stated\b[\s\S]*$/i, ' ')
+    .replace(/\btransported to such place\b[\s\S]*$/i, ' ')
     .replace(/\bSUSTAINABLE ORIGINS MASS BALANCE\b/gi, ' ')
     .replace(/\bCACAO EN GRANO ECUATORIANO\b/gi, ' ')
-    .replace(/\bMARCAS:?\b/gi, ' ')
+    .replace(/\bFDA(?:\s*NUMBER)?:?\s*\d+/gi, ' ')
+    .replace(/\bCONTRACT#?:?\s*[A-Z0-9._-]+/gi, ' ')
+    .replace(/\bREFERENCE:\s*/gi, ' ')
+    .replace(/\bCO\.\s*P\d[\d.]*/gi, ' ')
+    .replace(/\bP0\d{4}(?:\.\d+)?\b/gi, ' ')
+    .replace(/\bGROSS W(?:EIGHT)?\b[\s\S]*$/i, ' ')
     .replace(/\bCV:?\s*[\d-]+(?:\s+[\d-]+)*/gi, ' ')
     .replace(/\d+[.,]\d+\s*K\.?\s*[NB]\.?/gi, ' ')
     .replace(/\s+/g, ' ')
@@ -104,7 +116,7 @@ function compareText({ id, group, label, a, b, mode = 'text', note }) {
     return { id, group, label, proforma: pa, hbl: pb, status: 'skip', detail: note }
   }
 
-  if (!emptyA && !emptyB && mode !== 'number' && mode !== 'seal' && mode !== 'hs' && joinersConflict(a, b)) {
+  if (!emptyA && !emptyB && mode !== 'number' && mode !== 'seal' && mode !== 'hs' && mode !== 'port' && joinersConflict(a, b)) {
     return {
       id, group, label, proforma: pa, hbl: pb,
       status: 'mismatch',
@@ -966,6 +978,311 @@ export function compareHblMbl(hbl, mbl) {
     items: visible,
     carrier: mbl.carrier || '',
     pair: 'hbl-mbl',
+    counts: {
+      match: matches.length,
+      mismatch: mismatches.length,
+      warning: warnings.length,
+      expected: expected.length,
+    },
+  }
+}
+
+export function compareHblSwb(hbl, swb) {
+  const wordingRight = 'SWB'
+  const items = []
+
+  items.push(
+    compareText({
+      id: 'shipper',
+      group: 'Partes',
+      label: 'Shipper',
+      a: partyText(hbl.shipper),
+      b: partyText(swb.shipper),
+      mode: 'address',
+    }),
+    compareText({
+      id: 'consignee',
+      group: 'Partes',
+      label: 'Consignee',
+      a: partyText(hbl.consignee),
+      b: partyText(swb.consignee),
+      mode: 'address',
+    }),
+    compareText({
+      id: 'notify',
+      group: 'Partes',
+      label: 'Notify party',
+      a: partyText(hbl.notify),
+      b: partyText(swb.notify),
+      mode: 'address',
+    }),
+  )
+
+  const second = compareText({
+    id: 'second-notify',
+    group: 'Ajustes esperados',
+    label: 'Second notify',
+    a: partyText(hbl.secondNotify),
+    b: partyText(swb.secondNotify),
+    mode: 'address',
+  })
+  if (second.status === 'mismatch' && (second.hbl === '—' || /sucre arias|ucc logistics|panama, panama|place of delivery/i.test(String(second.hbl)))) {
+    if (second.proforma === '—') {
+      second.status = 'skip'
+    } else {
+      second.status = 'warning'
+      second.detail = 'El SWB no trae Second Notify en su casilla'
+    }
+  }
+  if (second.status !== 'skip') items.push(second)
+
+  items.push(
+    compareText({
+      id: 'booking',
+      group: 'Transporte',
+      label: 'Booking',
+      a: hbl.bookingNo,
+      b: swb.bookingNo,
+    }),
+    compareText({
+      id: 'bl',
+      group: 'Transporte',
+      label: 'Bill of lading',
+      a: hbl.blNo,
+      b: swb.blNo,
+    }),
+    compareText({
+      id: 'vessel',
+      group: 'Transporte',
+      label: 'Buque',
+      a: hbl.vessel,
+      b: swb.vessel,
+      mode: 'vessel',
+    }),
+    compareText({
+      id: 'voyage',
+      group: 'Transporte',
+      label: 'Voyage',
+      a: hbl.voyage,
+      b: swb.voyage,
+      mode: 'voyage',
+    }),
+    compareText({
+      id: 'pol',
+      group: 'Transporte',
+      label: 'Puerto de carga',
+      a: hbl.portLoading,
+      b: swb.portLoading,
+      mode: 'port',
+    }),
+    compareText({
+      id: 'pod',
+      group: 'Transporte',
+      label: 'Puerto de descarga',
+      a: hbl.portDischarge,
+      b: swb.portDischarge,
+      mode: 'port',
+    }),
+    compareText({
+      id: 'lote',
+      group: 'Carga y marcas',
+      label: 'Lote',
+      a: hbl.marks?.lote,
+      b: swb.marks?.lote,
+      mode: 'lote',
+    }),
+    compareText({
+      id: 'marks',
+      group: 'Carga y marcas',
+      label: 'Marcas',
+      a: cleanMarks(hbl.marks?.text),
+      b: cleanMarks(swb.marks?.text),
+      mode: 'address',
+    }),
+  )
+
+  const containerItems = matchContainers(hbl.containers, swb.containers)
+  containerItems.forEach((item) => {
+    if (item.detail === 'No está en el HBL') item.detail = `No está en el ${wordingRight}`
+    if (item.detail === 'Aparece en el HBL y no en la proforma') {
+      item.label = `Contenedor extra en el ${wordingRight}`
+      item.detail = `Aparece en el ${wordingRight} y no en el HBL`
+    }
+    if (item.detail === 'Falta en el HBL') item.detail = `Falta en el ${wordingRight}`
+    if (item.detail === 'Solo aparece en el HBL') item.detail = `Solo aparece en el ${wordingRight}`
+  })
+  items.push(...containerItems)
+
+  items.push(
+    compareText({
+      id: 'bags',
+      group: 'Totales y referencias',
+      label: 'Total bultos',
+      a: bagsTotal(hbl),
+      b: bagsTotal(swb),
+      mode: 'number',
+    }),
+    compareText({
+      id: 'net',
+      group: 'Totales y referencias',
+      label: 'Peso neto',
+      a: hbl.totals?.netKg,
+      b: swb.totals?.netKg,
+      mode: 'number',
+    }),
+    compareText({
+      id: 'gross',
+      group: 'Totales y referencias',
+      label: 'Peso bruto',
+      a: hbl.totals?.grossKg,
+      b: swb.totals?.grossKg,
+      mode: 'number',
+    }),
+    compareText({
+      id: 'cbm',
+      group: 'Totales y referencias',
+      label: 'Medida CBM',
+      a: hbl.totals?.cbm,
+      b: swb.totals?.cbm,
+      mode: 'number',
+    }),
+    compareText({
+      id: 'hs',
+      group: 'Totales y referencias',
+      label: 'HS code',
+      a: hbl.refs?.hsCode,
+      b: swb.refs?.hsCode,
+      mode: 'hs',
+    }),
+    compareText({
+      id: 'fda',
+      group: 'Totales y referencias',
+      label: 'FDA',
+      a: hbl.refs?.fda,
+      b: swb.refs?.fda,
+      mode: 'ref',
+    }),
+    compareText({
+      id: 'dae',
+      group: 'Totales y referencias',
+      label: 'DAE',
+      a: hbl.refs?.dae,
+      b: swb.refs?.dae,
+      mode: 'ref',
+    }),
+    compareText({
+      id: 'contract',
+      group: 'Totales y referencias',
+      label: 'Contract',
+      a: hbl.refs?.contract,
+      b: swb.refs?.contract,
+      mode: 'contract',
+    }),
+  )
+
+  const hblRuc = hbl.shipper?.ruc || hbl.extras?.ruc || ''
+  const swbRuc = swb.shipper?.ruc || swb.extras?.ruc || ''
+  if (hblRuc || swbRuc) {
+    items.push(
+      compareText({
+        id: 'ruc',
+        group: 'Partes',
+        label: 'RUC del shipper',
+        a: hblRuc,
+        b: swbRuc,
+      }),
+    )
+  }
+
+  if (hbl.extras?.freightCollect && swb.extras?.freightTypo) {
+    items.push({
+      id: 'freight-collect',
+      group: 'Ajustes esperados',
+      label: 'FREIGHT COLLECT',
+      proforma: 'FREIGHT COLLECT',
+      hbl: 'FREIGH COLLECT',
+      status: 'warning',
+      detail: 'El SWB escribe FREIGH COLLECT (falta la T). Mismo sentido.',
+    })
+  } else {
+    const bits = [swb.extras?.freightCollect && 'FREIGHT COLLECT', swb.extras?.shippedOnBoard && 'SHIPPED ON BOARD']
+      .filter(Boolean)
+    items.push({
+      id: 'freight-collect',
+      group: 'Ajustes esperados',
+      label: 'FREIGHT COLLECT / SHIPPED ON BOARD',
+      proforma: [hbl.extras?.freightCollect && 'FREIGHT COLLECT', hbl.extras?.shippedOnBoard && 'SHIPPED ON BOARD']
+        .filter(Boolean)
+        .join('\n') || '—',
+      hbl: bits.join('\n') || '—',
+      status: bits.length && (hbl.extras?.freightCollect || hbl.extras?.shippedOnBoard) ? 'match' : (bits.length ? 'extra' : 'skip'),
+      detail: bits.length ? 'Frases de flete / embarque' : '',
+    })
+  }
+
+  items.forEach((item) => {
+    if (item.id === 'dae' && item.status === 'mismatch' && item.proforma !== '—' && item.hbl !== '—') {
+      const A = str(hbl.refs?.dae).replace(/\s/g, '')
+      const B = str(swb.refs?.dae).replace(/\s/g, '')
+      if (A && B && (A.startsWith(B) || B.startsWith(A))) {
+        item.status = 'match'
+        item.detail = 'Mismo DAE'
+      }
+    }
+    if (item.id?.includes('-desc') && item.status === 'mismatch') {
+      const left = str(item.proforma)
+      const right = str(item.hbl)
+      if (/COCOA|BEANS|CACAO/i.test(left) && /COCOA|BEANS|CACAO/i.test(right)) {
+        item.status = 'match'
+        item.detail = 'Misma mercancía'
+      } else if (/GRADO|GRADE/i.test(left) && /COCOA|BEANS|CACAO|GRADO|GRADE/i.test(right)) {
+        item.status = 'match'
+        item.detail = 'Misma mercancía'
+      } else if (/COCOA|BEANS|CACAO/i.test(left) && /GRADO|GRADE/i.test(right)) {
+        item.status = 'match'
+        item.detail = 'Misma mercancía'
+      }
+    }
+    if ((item.id === 'pol' || item.id === 'pod') && item.status === 'mismatch') {
+      const cities = /GUAYAQUIL|BUENAVENTURA|NEW YORK|OAKLAND|HALIFAX|SAVANNAH|PHILADELPHIA|POSORJA|MANTA/
+      const A = String(item.proforma).toUpperCase()
+      const B = String(item.hbl).toUpperCase()
+      const hit = A.match(cities)?.[0]
+      if (hit && B.includes(hit)) {
+        item.status = 'match'
+        item.detail = 'Equivalente (guion vs coma del formulario SWB)'
+      }
+    }
+    if (item.detail === 'Falta en el HBL') item.detail = `Falta en el ${wordingRight}`
+    if (item.detail === 'Solo aparece en el HBL') item.detail = `Solo aparece en el ${wordingRight}`
+    if (item.detail === 'Dato asignado en el HBL') item.detail = `Dato asignado en el ${wordingRight}`
+    if (item.detail === 'El HBL trae buque; la celda Vessel de la proforma está vacía') {
+      item.detail = 'El SWB trae buque; el HBL no'
+    }
+    if (item.detail === 'El HBL trae voyage; la celda de la proforma está vacía') {
+      item.detail = 'El SWB trae voyage; el HBL no'
+    }
+    if (item.detail === 'No aparece en la carátula del HBL') {
+      item.detail = `No aparece en el ${wordingRight}`
+    }
+    if (item.detail === 'Proforma ' || item.detail?.startsWith('Proforma ')) {
+      item.detail = item.detail.replace('Proforma ', 'HBL ').replace(' vs HBL ', ' vs SWB ')
+    }
+  })
+
+  const visible = items.filter((i) => i.status !== 'skip')
+  const mismatches = visible.filter((i) => i.status === 'mismatch')
+  const warnings = visible.filter((i) => i.status === 'warning')
+  const matches = visible.filter((i) => i.status === 'match')
+  const expected = visible.filter((i) => i.status === 'relocated' || i.status === 'extra')
+  const scored = visible.filter((i) => ['match', 'mismatch', 'warning', 'relocated'].includes(i.status))
+  const good = scored.filter((i) => i.status === 'match' || i.status === 'relocated').length
+  const score = scored.length ? Math.round((good / scored.length) * 100) : 0
+
+  return {
+    score,
+    items: visible,
+    pair: 'hbl-swb',
     counts: {
       match: matches.length,
       mismatch: mismatches.length,

@@ -1,6 +1,7 @@
 import { parseProformaArrayBuffer } from './parseProforma.js'
-import { parseHblPdf, parseHblDocx, parseProformaDocx, parseMblPdf } from './parseHblPdf.js'
-import { looksLikeHblName, looksLikeMblName } from './carrier.js'
+import { parseHblPdf, parseHblDocx, parseProformaDocx, parseMblPdf, parseSwbPdf } from './parseHblPdf.js'
+import { parseSwbArrayBuffer, excelLooksLikeSwb, finalizeSwb } from './parseSwb.js'
+import { looksLikeHblName, looksLikeMblName, looksLikeSwbName } from './carrier.js'
 
 function extOf(name = '') {
   const m = String(name).toLowerCase().match(/(\.[a-z0-9]+)$/)
@@ -18,6 +19,12 @@ function looksLikeProformaName(name = '') {
 export function classifyFile(file, hint = '') {
   const ext = extOf(file?.name)
   const name = file?.name || ''
+  if (looksLikeSwbName(name)) {
+    if (ext === '.xls' || ext === '.xlsx' || ext === '.pdf' || ext === '.docx') return 'swb'
+  }
+  if (hint === 'swb' && (ext === '.xls' || ext === '.xlsx' || ext === '.pdf' || ext === '.docx') && !looksLikeMblName(name)) {
+    return 'swb'
+  }
   if (ext === '.xls' || ext === '.xlsx') return 'proforma'
   if (ext === '.pdf') {
     if (looksLikeMblName(name)) return 'mbl'
@@ -48,8 +55,18 @@ export async function parseDroppedFile(file, expected) {
   const buffer = await file.arrayBuffer()
   const ext = extOf(file.name)
 
+  if (named === 'swb' || expected === 'swb') {
+    if (ext === '.xls' || ext === '.xlsx') return parseSwbArrayBuffer(buffer, file.name)
+    if (ext === '.pdf') return parseSwbPdf(buffer, file.name)
+    if (ext === '.docx') return finalizeSwb(await parseHblDocx(buffer, file.name), file.name)
+    throw new Error('El SWB tiene que ser PDF, Excel (.xls, .xlsx) o Word (.docx).')
+  }
+
   if (named === 'proforma') {
     if (ext === '.docx') return parseProformaDocx(buffer, file.name)
+    if ((ext === '.xls' || ext === '.xlsx') && excelLooksLikeSwb(buffer)) {
+      return parseSwbArrayBuffer(buffer, file.name)
+    }
     return parseProformaArrayBuffer(buffer, file.name)
   }
   if (ext === '.pdf') {
