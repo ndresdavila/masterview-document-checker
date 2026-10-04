@@ -9,6 +9,7 @@ import {
   ISO_RE,
 } from './normalize.js'
 import { detectCarrier } from './carrier.js'
+import { extractDae } from './parseHbl.js'
 
 function splitParty(lines) {
   const clean = lines
@@ -76,7 +77,7 @@ function parseRefs(text) {
     || t.match(/FDA\s*NR\s*([0-9]+)/i)?.[1]
     || t.match(/FDA(?:\s*NUMBER)?\s*:?\s*([0-9]{8,})/i)?.[1]
     || ''
-  const dae = (t.match(/D\.?A\.?E\.?\s*#?:?\s*['"]?([0-9][0-9\s-]{10,}[0-9])/i)?.[1] || '').replace(/\s+/g, '')
+  const dae = extractDae(t)
   let contract = t.match(/CONTRATO#?:?\s*([A-Z0-9._-]+)/i)?.[1]
     || t.match(/CONTRACT#:\s*([A-Z0-9._-]+)/i)?.[1]
     || t.match(/\bCO\.\s*(P\d[\d.]+)/i)?.[1]

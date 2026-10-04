@@ -124,6 +124,13 @@ function extractPort(text, startRe, stopRe, kind = 'loading') {
   return pickPortFromBlock(window, kind)
 }
 
+export function extractDae(text) {
+  const raw = String(text || '')
+  const match = raw.match(/D\.?A\.?E\.?\s*#?:?[^\S\r\n]*['"]?(\d{3})\s*-\s*(\d{4})\s*-\s*(\d{2})\s*-\s*(\d{8})(?!\d)/i)
+  if (!match) return ''
+  return `${match[1]}-${match[2]}-${match[3]}-${match[4]}`
+}
+
 function parseLabeledRefs(text) {
   const hs = text.match(/HS\s*CODE\s*:?\s*([0-9.]+)/i)?.[1]
     || text.match(/P\.A\s*:\s*([0-9.]+)/i)?.[1]
@@ -133,7 +140,7 @@ function parseLabeledRefs(text) {
     || text.match(/FDA\s*NR\s*([0-9]+)/i)?.[1]
     || text.match(/FDA(?:\s*NUMBER)?\s*:?\s*([0-9]{8,})/i)?.[1]
     || ''
-  const dae = (text.match(/D\.?A\.?E\.?:?\s*#?\s*['"]?([0-9][0-9\s-]{10,}[0-9])/i)?.[1] || '').replace(/\s+/g, '')
+  const dae = extractDae(text)
   let contract = text.match(/CONTRATO#?:?\s*([A-Z0-9._-]+)/i)?.[1]
     || text.match(/CONTRACT#:\s*([A-Z0-9._-]+(?:\s+[A-Z]\b)?)/i)?.[1]
     || text.match(/\bCO\.\s*(P\d[\d.]+)/i)?.[1]
