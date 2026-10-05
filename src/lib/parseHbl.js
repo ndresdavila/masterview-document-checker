@@ -625,7 +625,14 @@ function parseHblFromPdfWords(words, fileName, extraText = '') {
 
   const descText = textIn(words, descBox).join('\n')
   const leftCargo = textIn(words, { x0: 0, x1: 178, y0: 300, y1: 700 }).join('\n')
-  const rawMarks = textIn(words, { x0: 0, x1: 178, y0: 360, y1: 700 })
+  // Some SWB layouts start the description column left of x=178 (e.g. x~164-177).
+  // Stop the marks box just before it so marks lines do not merge with descriptions.
+  const descColX = words
+    .filter((w) => w.y >= 300 && w.y < 700 && w.x >= 140 && w.x < 178)
+    .filter((w) => /^\d[\d,.]*\s+(BAGS|SACOS|CAJAS|BOXES)\b|^(NET|GROSS) WEIGHT\b|^HS CODE\b/i.test(str(w.str)))
+    .reduce((m, w) => Math.min(m, w.x), Infinity)
+  const marksX1 = Number.isFinite(descColX) ? descColX - 2 : 178
+  const rawMarks = textIn(words, { x0: 0, x1: marksX1, y0: 360, y1: 700 })
   const marksStart = rawMarks.findIndex((l) => {
     if (/^(container|contenedor|seals?|sellos?):/i.test(l)) return false
     if (ISO_RE.test(String(l).toUpperCase())) return false
