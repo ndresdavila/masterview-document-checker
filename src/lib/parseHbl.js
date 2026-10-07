@@ -559,7 +559,12 @@ function parseHblFromPdfWords(words, fileName, extraText = '') {
   const shipperLbl = labelAt(words, /^shipper$/i, 120)
   const consigneeLbl = labelAt(words, /^consignee$/i, 120)
   const notifyLbl = labelAt(words, /^notify party$/i, 160)
-  const secondLbl = words.find((w) => /^second notify:?$/i.test(str(w.str))) || null
+  const secondLbls = words.filter((w) => /^second notify:?$/i.test(str(w.str)))
+  // Some UCC SWB layouts put the Second Notify box in the left column, right under Notify Party.
+  const secondLeftLbl = notifyLbl
+    ? secondLbls.find((w) => w.x < 200 && w.y > notifyLbl.y + 8) || null
+    : null
+  const secondLbl = secondLeftLbl || secondLbls[0] || null
   const preLbl = words.find((w) => /pre-carriage/i.test(str(w.str))) || null
   const carrierLbl = words.find((w) => /^carrier$/i.test(str(w.str)) && w.x > 200) || null
   const placeReceiptLbl = words.find((w) => /full address of place of receipt|^place of receipt/i.test(str(w.str))) || null
@@ -578,8 +583,10 @@ function parseHblFromPdfWords(words, fileName, extraText = '') {
   const booking = { x0: 285, x1: 430, y0: 55, y1: 95 }
   const bl = { x0: 430, x1: W, y0: 55, y1: 95 }
   const consigneeBox = { x0: 0, x1: leftX1, y0: consigneeY, y1: notifyY - 2 }
-  const notifyBox = { x0: 0, x1: secondX, y0: notifyY, y1: partiesBottom - 2 }
-  const secondBox = { x0: secondX, x1: W, y0: (secondLbl?.y ?? notifyY) - 4, y1: partiesBottom - 2 }
+  const notifyBox = { x0: 0, x1: secondX, y0: notifyY, y1: secondLeftLbl ? secondLeftLbl.y - 2 : partiesBottom - 2 }
+  const secondBox = secondLeftLbl
+    ? { x0: 0, x1: secondX, y0: secondLeftLbl.y + 3, y1: partiesBottom - 2 }
+    : { x0: secondX, x1: W, y0: (secondLbl?.y ?? notifyY) - 4, y1: partiesBottom - 2 }
   const podBox = { x0: 290, x1: 430, y0: 250, y1: 300 }
   const descBox = { x0: 175, x1: 430, y0: 315, y1: 560 }
   const weightBox = { x0: 430, x1: W, y0: 315, y1: 360 }
