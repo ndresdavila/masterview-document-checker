@@ -181,6 +181,9 @@ function compareText({ id, group, label, a, b, mode = 'text', note }) {
     if (!emptyA && emptyB) {
       return { id, group, label, proforma: pa, hbl: pb, status: 'warning', detail: 'No aparece en la carátula del HBL' }
     }
+    if (emptyA && !emptyB) {
+      return { id, group, label, proforma: pa, hbl: pb, status: 'extra', detail: 'Solo aparece en el HBL' }
+    }
     const ok = contractsMatch(a, b)
     return {
       id, group, label, proforma: pa, hbl: pb,

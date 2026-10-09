@@ -363,7 +363,7 @@ function parseContainersFromText(text) {
   return containers
 }
 
-function parseHblFromPlainText(text, fileName) {
+function parseHblFromPlainText(text, fileName, { notifyCells } = {}) {
   const t = text.replace(/\u00a0/g, ' ')
   const bookingNo = extractBooking(t)
   const blNo = t.toUpperCase().match(/\b(ULGO\d{2}[A-Z]{2}\d{5,})\b/)?.[1]
@@ -381,7 +381,7 @@ function parseHblFromPlainText(text, fileName) {
     .map(str)
     .filter((l) => l && !/booking\s*number|bill of lading|continued from|combined transport|principal or seller|export references|^contact:?$|^fda\s*:/i.test(l) && l !== bookingNo && l !== blNo)
     .filter((l) => !/^\d{10,}$/.test(l))
-    .filter((l) => !/copy non-negotiable/i.test(l))
+    .filter((l) => !/copy non-negotiable|your cargo,?\s*our commitment/i.test(l))
 
   const ruc = t.match(/R\.?U\.?C\.?\s*:?\s*([0-9]{10,13})/i)?.[1] || ''
   const shipper = splitParty(startOfParty(shipperLines.filter((l) => !/^R\.?U\.?C\.?/i.test(l))))
@@ -394,9 +394,13 @@ function parseHblFromPlainText(text, fileName) {
       .filter((l) => l && !/unless provided|non-negotiable unless|forward agent|^contact:?$/i.test(l)),
   )
 
+  // Celdas de la tabla del Word bajo dos títulos "NOTIFY PARTY" seguidos (ver docxText.js):
+  // la primera es el notify y la segunda el second notify, aunque no lleve etiqueta.
+  const twinCells = notifyCells && !/\bSecond Notify\b/i.test(t) ? notifyCells : null
+
   const notify = splitParty(
     startOfParty(
-      captureAfter(t, /\bNotify Party\b/i, /\bSecond Notify:?|\bThird Notify:?|\bPre-Carriage|\bVessel\b|\bInitial Carriage/i)
+      (twinCells ? twinCells[0] : captureAfter(t, /\bNotify Party\b/i, /\bSecond Notify:?|\bThird Notify:?|\bPre-Carriage|\bVessel\b|\bInitial Carriage/i))
         .split(/\r?\n/)
         .map(str)
         .filter((l) => l && !/intermediate consignee|name and full address|^notify party\b|^contact:?$/i.test(l)),
@@ -404,7 +408,7 @@ function parseHblFromPlainText(text, fileName) {
   )
 
   const secondNotify = splitParty(
-    captureAfter(t, /\bSecond Notify:?/i, /\bPre-Carriage|\bVessel\b|\bNotify Party\b|\bThird Notify|\bInitial Carriage/i)
+    (twinCells ? twinCells[1] || '' : captureAfter(t, /\bSecond Notify:?/i, /\bPre-Carriage|\bVessel\b|\bNotify Party\b|\bThird Notify|\bInitial Carriage/i))
       .split(/\r?\n/)
       .map(stripBoiler)
       .filter((l) => l && !/intermediate consignee|name and full address|^contact:?$/i.test(l)),
@@ -480,7 +484,7 @@ function parseHblFromPlainText(text, fileName) {
     const labeled = parseNumber(t.match(/TOTAL GROSS WEIGHT:?\s*([\d.,]+)/i)?.[1])
     totalGross = labeled != null && labeled <= totalNet * 3 ? labeled : null
   }
-  const totalMeas = parseNumber(t.match(/TOTAL MEASUREMENT:?\s*([\d,]+\.?\d*)\s*CBM/i)?.[1])
+  const totalMeas = parseNumber(t.match(/TOTAL MEASUREMENT:?\s*([\d,]+\.?\d*)(?:\s*CBM)?/i)?.[1])
   const cbmHits = [...t.matchAll(/([\d,]+\.?\d*)\s*CBM/gi)]
     .map((m) => parseNumber(m[1]))
     .filter((n) => n != null)
@@ -734,8 +738,8 @@ function parseHblFromPdfWords(words, fileName, extraText = '') {
 
 export { parseHblFromPlainText, parseHblFromPdfWords }
 
-export function parseProformaFromPlainText(text, fileName) {
-  const doc = parseHblFromPlainText(text, fileName)
+export function parseProformaFromPlainText(text, fileName, layout = {}) {
+  const doc = parseHblFromPlainText(text, fileName, layout)
   doc.kind = 'proforma'
   if (doc.blNo && doc.bookingNo && canon(doc.blNo) === canon(doc.bookingNo)) doc.blNo = ''
   if (/^(ZIMU|GYEG)/i.test(doc.blNo)) doc.blNo = ''

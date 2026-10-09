@@ -331,7 +331,18 @@ export function sealsMatch(a, b) {
   const A = sealTokens(a)
   const B = sealTokens(b)
   if (!A.length || !B.length) return false
-  return A.some((x) => B.includes(x))
+  if (!A.some((x) => B.includes(x))) return false
+  // Un sello casi igual al del otro lado (FELP315882 vs FELP315883) es un error de tipeo, no otro sello.
+  const onlyA = A.filter((x) => !B.includes(x))
+  const onlyB = B.filter((y) => !A.includes(y))
+  return !onlyA.some((x) => onlyB.some((y) => nearTwin(x, y)))
+}
+
+function nearTwin(x, y) {
+  if (x.length !== y.length || x.length < 6) return false
+  let diff = 0
+  for (let i = 0; i < x.length; i += 1) if (x[i] !== y[i]) diff += 1
+  return diff > 0 && diff <= 2
 }
 
 export function extractIsoId(text) {

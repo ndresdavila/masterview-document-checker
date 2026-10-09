@@ -1,6 +1,6 @@
 import * as pdfjs from 'pdfjs-dist'
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
-import mammoth from 'mammoth'
+import { docxContent, docxPlainText } from './docxText.js'
 import { parseHblFromPdfWords, parseHblFromPlainText, parseProformaFromPlainText } from './parseHbl.js'
 import { parseMblFromPdfPages } from './parseMbl.js'
 import { parseSwbFromPdfPages } from './parseSwb.js'
@@ -46,11 +46,10 @@ export async function parseMblPdf(buffer, fileName) {
 }
 
 export async function parseHblDocx(buffer, fileName) {
-  const result = await mammoth.extractRawText({ arrayBuffer: buffer })
-  return parseHblFromPlainText(result.value, fileName)
+  return parseHblFromPlainText(await docxPlainText({ arrayBuffer: buffer }), fileName)
 }
 
 export async function parseProformaDocx(buffer, fileName) {
-  const result = await mammoth.extractRawText({ arrayBuffer: buffer })
-  return parseProformaFromPlainText(result.value, fileName)
+  const { text, notifyCells } = await docxContent({ arrayBuffer: buffer })
+  return parseProformaFromPlainText(text, fileName, { notifyCells })
 }

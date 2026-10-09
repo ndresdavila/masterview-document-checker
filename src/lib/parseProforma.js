@@ -234,6 +234,10 @@ function parseContainers(grid, startRow, endRow) {
     }
 
     const descCell = str(row[5] || row[4])
+    // "1450 BAGS OF ..." debajo del último contenedor es el resumen del embarque, no parte de ese contenedor.
+    const descBags = bagsFromText(descCell)
+    const bagsSoFar = containers.reduce((s, c) => s + (c.pkgs || 0), 0) + (current.pkgs || 0)
+    if (containers.length && descBags != null && descBags !== current.pkgs && descBags === bagsSoFar) break
     if (/net weight/i.test(descCell)) {
       const n = parseNumber(descCell)
       if (plausibleNet(n)) current.netKg = n
@@ -250,6 +254,10 @@ function parseContainers(grid, startRow, endRow) {
       const weights = knKb(descCell)
       if (current.netKg == null && weights.netKg != null) current.netKg = weights.netKg
       if (current.grossKg == null && weights.grossKg != null) current.grossKg = weights.grossKg
+    } else if (descCell) {
+      const weights = knKb(descCell)
+      if (current.netKg == null && plausibleNet(weights.netKg)) current.netKg = weights.netKg
+      if (current.grossKg == null && plausibleGross(weights.grossKg)) current.grossKg = weights.grossKg
     }
   }
   flush()
@@ -431,15 +439,25 @@ export function parseProformaArrayBuffer(buffer, fileName = '') {
     ? parseNumber(grid[totalBagsLbl.r][totalBagsLbl.c + 1] ?? grid[totalBagsLbl.r][6])
       || parseNumber(grid[totalBagsLbl.r][totalBagsLbl.c])
     : containers.reduce((s, c) => s + (c.pkgs || 0), 0)
-  const netLbl = findLabel(grid, /total net weight|peso neto total/i)
-  const grossLbl = findLabel(grid, /total gross weight|peso bruto total/i)
+  const netLbl = findLabel(grid, /total net weight|peso neto total/i) || findLabel(grid, /^N\.?W\.?\s*:/i)
+  const grossLbl = findLabel(grid, /total gross weight|peso bruto total/i) || findLabel(grid, /^G\.?W\.?\s*:/i)
+  const measLbl = findLabel(grid, /^measurement$/i)
+  let shipmentCbm = null
+  if (measLbl && !allCbm) {
+    const hits = []
+    for (let r = cargoStart; r < cargoEnd; r += 1) {
+      const n = typeof grid[r]?.[measLbl.c] === 'number' ? grid[r][measLbl.c] : null
+      if (n != null && n > 0) hits.push(n)
+    }
+    if (hits.length === 1) shipmentCbm = hits[0]
+  }
 
   const marks = []
   if (marksLbl) {
     for (let r = cargoStart; r < Math.min(grid.length, cargoEnd + 16); r += 1) {
       const s = str(grid[r][0])
       if (!s) continue
-      if (/^(contenedor|container|sellos?|marcas):?/i.test(s)) continue
+      if (/^(contenedor|container|sellos?|seals?|marcas):?/i.test(s)) continue
       if (/^naviera:|^shipper:|^p\.a\s*:/i.test(s)) continue
       if (ISO_RE.test(s.toUpperCase())) continue
       if (isSealToken(s) && s.length <= 14) continue
@@ -508,13 +526,14 @@ export function parseProformaArrayBuffer(buffer, fileName = '') {
       bags: totalBags,
       netKg: saneTotal(netFromLabel, sumNet),
       grossKg: saneTotal(grossFromLabel, sumGross),
-      cbm: allCbm || null,
+      cbm: allCbm || shipmentCbm,
     },
     refs: {
       hsCode: pickPrefixed(/hs code/i) || pickPrefixed(/\bp\.?\s*a\.?\s*:/i),
       fda: pickPrefixed(/fda/i),
       dae: pickPrefixed(/dae|d\.a\.e/i),
-      contract: pickPrefixed(/contract|contrato/i) || pickPrefixed(/\bco\.\s*p/i),
+      contract: pickPrefixed(/contract|contrato/i) || pickPrefixed(/\bco\.\s*p/i) || pickPrefixed(/^p\.?o\.?\s*[:#]\s*p\d/i)
+        || str(findLabel(grid, /\bP0\d{4}(?:\.\d+)?\b/)?.s).match(/\b(P0\d{4}(?:\.\d+)?)\b/)?.[1] || '',
     },
     extras: {
       ruc: splitParty(shipperLines).ruc,
