@@ -466,7 +466,7 @@ function parseHblFromPlainText(text, fileName, { notifyCells } = {}) {
     .map((m) => parseNumber(m[1]))
     .filter((n) => n != null && n > 40000)
     .pop()
-  const kgBesideCbm = parseNumber(t.match(/([\d,]+\.?\d*)\s*KG\s+[\d,]+\.?\d*\s*CBM/i)?.[1])
+  const kgBesideCbm = parseNumber(t.match(/([\d,]+\.?\d*)\s*KG\s+(?:[\d,]+\.?\d*\s*LBS\s+)?[\d,]+\.?\d*\s*CBM/i)?.[1])
   const totalNet = pickLargeWeight(
     /TOTAL NET WEIGHT:?\s*([\d,]+\.?\d*)/i,
     /N(?:ET)?\s*W(?:EIGHT)?:?\s*([\d,]+\.?\d*)/gi,
