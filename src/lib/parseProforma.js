@@ -75,6 +75,17 @@ function splitParty(lines) {
   }
 }
 
+// "A4 25 1040506" es un solo sello escrito en grupos; "A4251040506 I3089946" son dos sellos.
+// Se juntan los grupos solo si alguno es demasiado corto para ser un sello por sí solo.
+function joinSpacedSeal(value) {
+  const s = str(value).toUpperCase()
+  if (!/^[A-Z0-9]+(?: [A-Z0-9]+)+$/.test(s)) return s
+  const groups = s.split(' ')
+  const compact = groups.join('')
+  if (!groups.some((g) => g.length < 5) || compact.length < 8 || compact.length > 14 || !/\d/.test(compact)) return s
+  return compact
+}
+
 function isSealToken(value) {
   const tokens = sealTokens(value)
   return tokens.length > 0 && !ISO_RE.test(str(value).toUpperCase())
@@ -191,7 +202,7 @@ function parseContainers(grid, startRow, endRow) {
 
     if (/^sellos?:?$/i.test(c0) || /^sellos?:/i.test(c0)) {
       const rest = [c0.replace(/^sellos?:?\s*/i, ''), ...row.slice(1).map(str)]
-        .map(str)
+        .map(joinSpacedSeal)
         .filter(Boolean)
         .join(', ')
       current.seals.push(...sealTokens(rest))
@@ -229,7 +240,7 @@ function parseContainers(grid, startRow, endRow) {
       current.id = iso
       collectingSeals = false
     } else if ((collectingSeals || current.id) && isSealToken(c0) && !iso) {
-      current.seals.push(...sealTokens(c0))
+      current.seals.push(...sealTokens(joinSpacedSeal(c0)))
       collectingSeals = true
     }
 
@@ -292,7 +303,7 @@ function parseLooseIsoContainers(grid, startRow, endRow) {
       if (!s) continue
       if (ISO_RE.test(s.toUpperCase())) break
       if (/^marks$/i.test(s) || /total bags/i.test(s)) break
-      if (isSealToken(s)) seals.push(...sealTokens(s))
+      if (isSealToken(s)) seals.push(...sealTokens(joinSpacedSeal(s)))
     }
     const rowGross = parseNumber(row[8])
     const rowCbm = parseNumber(row[9])
@@ -411,8 +422,11 @@ export function parseProformaArrayBuffer(buffer, fileName = '') {
     ? str(grid[podLbl.r + 1]?.[podLbl.c]) || str(grid[podLbl.r + 1]?.[3])
     : ''
 
-  const cargoEnd = secondLbl?.r ?? totalBagsLbl?.r ?? grid.length
   const cargoStart = marksLbl ? marksLbl.r + 2 : 0
+  // En algunos formatos "2nd Notify Party" es un encabezado junto al notify, arriba de la carga:
+  // ahí no marca el final de la carga.
+  const below = (lbl) => (lbl && lbl.r >= cargoStart ? lbl.r : null)
+  const cargoEnd = below(secondLbl) ?? below(totalBagsLbl) ?? grid.length
   let containers = marksLbl ? parseContainers(grid, cargoStart, cargoEnd) : []
   if (!containers.length && marksLbl) {
     containers = parseContainerTable(grid, cargoStart, grid.length)
@@ -485,7 +499,8 @@ export function parseProformaArrayBuffer(buffer, fileName = '') {
   if (!lote) lote = marks.find((l) => /lote/i.test(l)) || ''
   const secondLines = []
   if (secondLbl) {
-    secondLines.push(str(grid[secondLbl.r][secondLbl.c]).replace(/^2nd notify:\s*/i, ''))
+    // "2nd Notify: NOMBRE" o un encabezado "2nd Notify Party" con los datos debajo.
+    secondLines.push(str(grid[secondLbl.r][secondLbl.c]).replace(/^2nd notify(?:\s+party)?\s*:?\s*/i, ''))
     for (let r = secondLbl.r + 1; r < Math.min(grid.length, secondLbl.r + 6); r += 1) {
       const s = str(grid[r][secondLbl.c])
       if (!s) break
