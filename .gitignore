@@ -23,3 +23,6 @@ _batch/
 *.njsproj
 *.sln
 *.sw?
+
+# Local test files
+/test/
