@@ -12,6 +12,12 @@ import {
   canon,
 } from './normalize.js'
 
+// Carrier SWBs (e.g. COSCO) print the booking with the carrier prefix glued on, "COSU6509430830".
+// Fall back to the 10 digits after a 4-letter carrier code; container numbers carry 7 digits, so they cannot match.
+function extractBookingPrefixed(text) {
+  return extractBooking(text) || str(text).toUpperCase().match(/\b[A-Z]{3}U\s?(\d{10})\b/)?.[1] || ''
+}
+
 function groupLines(words, yTol = 5) {
   const sorted = [...words].sort((a, b) => a.y - b.y || a.x - b.x)
   const lines = []
@@ -366,7 +372,7 @@ function parseContainersFromText(text) {
 
 function parseHblFromPlainText(text, fileName, { notifyCells } = {}) {
   const t = text.replace(/\u00a0/g, ' ')
-  const bookingNo = extractBooking(t)
+  const bookingNo = extractBookingPrefixed(t)
   const blNo = t.toUpperCase().match(/\b(ULGO\d{2}[A-Z]{2}\d{5,})\b/)?.[1]
     || t.toUpperCase().match(/\b(ONEY[A-Z0-9]{10,})\b/)?.[1]
     || t.toUpperCase().match(BL_RE)?.[1]
@@ -603,7 +609,7 @@ function parseHblFromPdfWords(words, fileName, extraText = '') {
   const shipper = splitParty(shipperLines.filter((l) => !/^R\.?U\.?C\.?/i.test(l) && !/^shipper$/i.test(l)))
   shipper.ruc = ruc
 
-  const bookingNo = extractBooking(textIn(words, booking).join(' '))
+  const bookingNo = extractBookingPrefixed(textIn(words, booking).join(' '))
   const blNo = textIn(words, bl).join(' ').toUpperCase().match(BL_RE)?.[1] || ''
   const consignee = splitParty(
     dropLeadingContacts(textIn(words, consigneeBox).filter((l) => !isPartyChrome(l) && !/unless provided/i.test(l))),
