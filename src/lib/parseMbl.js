@@ -166,7 +166,14 @@ function parseZimContainers(text) {
     const id = hits[i][1]
     const prev = i === 0 ? Math.max(0, hits[i].index - 280) : hits[i - 1].index
     const to = hits[i + 1] ? hits[i + 1].index : Math.min(t.length, hits[i].index + 900)
-    const gap = t.slice(prev, hits[i].index)
+    let gap = t.slice(prev, hits[i].index)
+    // Con un solo contenedor, el bloque "N BAGS OF..." puede quedar lejos del CONT: (totales,
+    // ALSO SHIPPER/CONSIGNEE en medio). Se amplía hasta la cabecera de la tabla.
+    if (i === 0 && !/\d{2,4}\s+BAGS\b/.test(gap)) {
+      const head = t.lastIndexOf('MKS & NOS/SEAL.NO', hits[i].index)
+      const wide = head >= 0 && head < prev ? t.slice(head, hits[i].index) : ''
+      if (/\d{2,4}\s+BAGS\b/.test(wide)) gap = wide
+    }
     const after = t.slice(hits[i].index, to)
     const bagHits = [...gap.matchAll(/(\d{2,4})\s+BAGS\b/g)]
       .map((x) => parseNumber(x[1]))
@@ -383,7 +390,17 @@ function parseZim(text, fileName, words = []) {
   const bags = containers.every((c) => c.pkgs != null)
     ? containers.reduce((s, c) => s + c.pkgs, 0)
     : parseNumber(t.match(/(\d+)\s+BAGS OF[\s\S]{0,40}CACAO/i)?.[1])
-  const marks = t.match(/MARCAS:\s*([\s\S]{0,240}?)(?=ALSO NOTIFY|CLAUSES:|SHIPPER'S LOAD|TOTAL NET|$)/i)?.[1] || ''
+      || parseNumber(t.match(/TOTAL BAGS\s*:\s*(\d+)/i)?.[1])
+  // Sin "MARCAS:", las marcas van tras el "/HC40 (CY/CY)" del contenedor y antes del peso final.
+  const unlabeledMarks = [...t.matchAll(/\((?:CY|CFS)\/(?:CY|CFS)\)\s+([\s\S]{5,240}?)\s+[\d.,]+\s+SHIPPER'S LOAD/gi)]
+    .map((m) => str(m[1])
+      .replace(/^(?:(?:OTHER SEALS:\s*)?SEAL:\s*[A-Z0-9]+\s+)+/i, '')
+      .replace(/^(?:MARKS|MARCAS)(?:\s+AND\s+NOS\.?)?:?\s*/i, ''))
+    .find((m) => /LOTE/i.test(m))
+    ?.replace(/\s+(?=LOTE|PRODUCT OF|PAIS ORIGEN|U\.?S\.?A\.?$|\d+[.,]\d+\s*K\.?\s*[NB]\b)/gi, '\n')
+    .replace(/(\d+[.,]\d+\s*K\.?\s*[NB]\.?)\s+/gi, '$1\n')
+    .replace(/(LOTE[#:]?\s*(?:NUMBER:?\s*)?[A-Z0-9-]+)\s+/gi, '$1\n') || ''
+  const marks = t.match(/MARCAS:\s*([\s\S]{0,240}?)(?=ALSO NOTIFY|CLAUSES:|SHIPPER'S LOAD|TOTAL NET|$)/i)?.[1] || unlabeledMarks
   return finish({
     carrier: 'zim',
     fileName,

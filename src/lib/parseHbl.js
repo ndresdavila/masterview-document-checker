@@ -142,7 +142,8 @@ function parseLabeledRefs(text) {
     || ''
   const dae = extractDae(text)
   let contract = text.match(/CONTRATO#?:?\s*([A-Z0-9._-]+)/i)?.[1]
-    || text.match(/CONTRACT#:\s*([A-Z0-9._-]+(?:\s+[A-Z]\b)?)/i)?.[1]
+    // Sufijo de letra solo en la misma línea ("P01429 B"); no la "U" de un "U.S.A." de abajo.
+    || text.match(/CONTRACT#:\s*([A-Z0-9._-]+(?:[^\S\r\n]+[A-Z]\b(?!\.))?)/i)?.[1]
     || text.match(/\bCO\.\s*(P\d[\d.]+)/i)?.[1]
     || text.match(/\bPO:\s*(P\d[\d.]+)/i)?.[1]
     || text.match(/\b(P0\d{4}(?:\.\d+)?)\b/i)?.[1]
