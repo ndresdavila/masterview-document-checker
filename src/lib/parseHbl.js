@@ -403,7 +403,8 @@ function parseHblFromPlainText(text, fileName, { notifyCells } = {}) {
 
   // Celdas de la tabla del Word bajo dos títulos "NOTIFY PARTY" seguidos (ver docxText.js):
   // la primera es el notify y la segunda el second notify, aunque no lleve etiqueta.
-  const twinCells = notifyCells && !/\bSecond Notify\b/i.test(t) ? notifyCells : null
+  // El título "SECOND NOTIFY (Name and Full Address)" de la plantilla no cuenta como etiqueta.
+  const twinCells = notifyCells && !/\bSecond Notify\b(?!\s*\(Name and Full)/i.test(t) ? notifyCells : null
 
   const notify = splitParty(
     startOfParty(

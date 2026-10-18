@@ -14,14 +14,15 @@ function cellLines(cell) {
   return toText(cell).split(/\n+/).map((l) => l.trim()).filter(Boolean).join('\n')
 }
 
-// La plantilla de proforma tiene dos columnas con el mismo título "NOTIFY PARTY": la de la
-// izquierda es el notify y la de la derecha el second notify. Devuelve el texto de ambas celdas.
+// La plantilla de proforma tiene dos columnas de notify: la de la izquierda es el notify y la de
+// la derecha el second notify. La plantilla anterior titulaba ambas "NOTIFY PARTY"; la actual
+// titula la derecha "SECOND NOTIFY". Devuelve el texto de ambas celdas.
 function findNotifyCells(element) {
   if (element.type === 'table') {
     const rows = (element.children || []).filter((r) => r.type === 'tableRow')
     for (let i = 0; i + 1 < rows.length; i += 1) {
       const head = rows[i].children || []
-      if (head.length >= 2 && head.slice(0, 2).every((c) => /^\s*NOTIFY PARTY/i.test(toText(c)))) {
+      if (head.length >= 2 && /^\s*NOTIFY PARTY/i.test(toText(head[0])) && /^\s*(NOTIFY PARTY|SECOND NOTIFY)/i.test(toText(head[1]))) {
         const cells = rows[i + 1].children || []
         // Debajo va la fila "CONTACT:" de la plantilla, con el nombre en la misma celda
         // ("CONTACT: LUCAS") o en la celda siguiente ([CONTACT:] [LUCAS]). Va con su parte.
