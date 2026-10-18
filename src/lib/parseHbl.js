@@ -492,7 +492,9 @@ function parseHblFromPlainText(text, fileName, { notifyCells } = {}) {
     const labeled = parseNumber(t.match(/TOTAL GROSS WEIGHT:?\s*([\d.,]+)/i)?.[1])
     totalGross = labeled != null && labeled <= totalNet * 3 ? labeled : null
   }
+  // La fila de totales de la proforma del formulario dice "CBM: 120"; antes, "TOTAL MEASUREMENT: 120 CBM".
   const totalMeas = parseNumber(t.match(/TOTAL MEASUREMENT:?\s*([\d,]+\.?\d*)(?:\s*CBM)?/i)?.[1])
+    ?? parseNumber(t.match(/\bCBM:\s*([\d,]+\.?\d*)/i)?.[1])
   const cbmHits = [...t.matchAll(/([\d,]+\.?\d*)\s*CBM/gi)]
     .map((m) => parseNumber(m[1]))
     .filter((n) => n != null)
