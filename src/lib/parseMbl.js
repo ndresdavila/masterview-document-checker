@@ -319,6 +319,13 @@ function parseCoscoContainers(text) {
     }
     if (!row.seal && seals.length) row.seal = seals.join(', ')
     if (row.pkgs == null || (pkgs != null && pkgs < 500 && (row.pkgs == null || row.pkgs >= 500))) row.pkgs = pkgs
+    // Plantilla GLOBAL COCOA: "NET WEIGHT: 25,047.00 KG GROSS WEIGHT: 25,228.50 KG" dentro del bloque
+    // (no el TOTAL NET WEIGHT del resumen). Va antes que el KN/KB sin etiqueta.
+    const labeled = (re) => { const n = parseNumber(chunk.match(re)?.[1]); return n != null && n >= 1000 && n < 40000 ? n : null }
+    const labeledNet = labeled(/(?<!TOTAL\s{1,3})NET\s+WEIGHT\s*:?\s*([\d.,]+)\s*KGS?\b/i)
+    const labeledGross = labeled(/(?<!TOTAL\s{1,3})GROSS\s+WEIGHT\s*:?\s*([\d.,]+)\s*KGS?\b/i)
+    if (row.netKg == null && labeledNet != null) row.netKg = labeledNet
+    if (row.grossKg == null && labeledGross != null) row.grossKg = labeledGross
     if (row.netKg == null && weights.netKg != null && weights.netKg < 40000) row.netKg = weights.netKg
     if (row.grossKg == null && weights.grossKg != null && weights.grossKg < 40000) row.grossKg = weights.grossKg
     if (!row.description) row.description = descFrom(chunk)
