@@ -710,7 +710,20 @@ function partyCompare(id, label, left, right) {
   return item
 }
 
-export function compareHblMbl(hbl, mbl) {
+// Con un solo contenedor en ambos, el MBL a veces trae bultos y pesos solo en los totales: esos
+// totales son los del contenedor. Con más contenedores no se puede repartir.
+function withSingleContainerTotals(hbl, mbl) {
+  if (hbl?.containers?.length !== 1 || mbl?.containers?.length !== 1) return mbl
+  const [c] = mbl.containers
+  const t = mbl.totals || {}
+  return {
+    ...mbl,
+    containers: [{ ...c, pkgs: c.pkgs ?? t.bags ?? null, grossKg: c.grossKg ?? t.grossKg ?? null, netKg: c.netKg ?? t.netKg ?? null }],
+  }
+}
+
+export function compareHblMbl(hbl, mblParsed) {
+  const mbl = withSingleContainerTotals(hbl, mblParsed)
   const items = []
   const wordingRight = 'MBL'
 

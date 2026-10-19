@@ -253,8 +253,33 @@ function parseCargoBlocks(text) {
   return blocks
 }
 
+// HBL generado por el dashboard: cada contenedor es una fila con sus celdas en este orden (marcas,
+// bultos, descripción, peso bruto, medida) y al final una fila "TOTAL" con la cifra debajo. Las
+// celdas van separadas por una línea en blanco; los bultos son una cifra sola, el peso "N KG" y la
+// medida "N CBM".
+const DASHBOARD_TOTAL_ROW = /(?:^|\n)TOTAL[ \t]*\n[ \t]*[\d,]+\.?\d*[ \t]*(?:KGS?|CBM)?[ \t]*(?:\n|$)/i
+
+function dashboardFigures(afterId) {
+  const cells = afterId.split(/\nMARKS:|\nTOTAL[ \t]*\n/)[0].split(/\n[ \t]*\n/).map((c) => c.trim()).slice(1)
+  const pick = (re) => parseNumber(cells.map((c) => c.match(re)?.[1]).find(Boolean))
+  // El neto no tiene columna: va en la descripción del contenedor ("NET WEIGHT: 24,978.00 KG").
+  // Sin marcas, la fila del resumen sigue a la del último contenedor: su "TOTAL NET WEIGHT" no cuenta.
+  const nets = cells.flatMap((c) => [...c.matchAll(/(?<!TOTAL\s{1,3})NET\s+WEIGHT\s*(?:\(\s*KGS?\s*\))?\s*:?\s*([\d,]+\.?\d*)/gi)].map((m) => parseNumber(m[1])))
+    .filter((n) => n != null)
+  const figure = /^[\d,]+\.?\d*(?:[ \t]*(?:KGS?|CBM))?$/i
+  return {
+    pkgs: pick(/^(\d[\d,]*)$/),
+    grossKg: pick(/^([\d,]+\.?\d*)[ \t]*KGS?$/i),
+    cbm: pick(/^([\d,]+\.?\d*)[ \t]*CBM$/i),
+    netKg: nets.length ? Math.max(...nets) : null,
+    // La celda de descripción, sin la línea "4X40HC CONTAINERS STC" de la primera fila.
+    description: str(cells.filter((c) => !figure.test(c)).join('\n').replace(/^\d+\s*X\s*\w+\s+CONTAINERS?\s+STC\s*$/im, '')),
+  }
+}
+
 function parseContainersFromText(text) {
   const upper = text.toUpperCase()
+  const fromDashboard = DASHBOARD_TOTAL_ROW.test(upper)
   const chunks = upper.split(/(?:CONTAINER|CONTENEDOR):\s*/)
   const containers = []
   for (let i = 1; i < chunks.length; i += 1) {
@@ -262,6 +287,12 @@ function parseContainersFromText(text) {
     const id = extractIsoId(chunk) || chunk.match(/^([A-Z]{3,4}\d{6,8})\b/)?.[1]
     if (!id) continue
     const afterId = chunk.slice(chunk.toUpperCase().indexOf(id) + id.length)
+    if (fromDashboard) {
+      const sealZone = (afterId.split(/SEALS?:/i)[1] || '').split(/\n[ \t]*\n/)[0]
+      const figures = dashboardFigures(afterId)
+      containers.push({ id, seal: sealTokens(sealZone).join(', '), ...figures })
+      continue
+    }
     const afterSeals = afterId.split(/SEALS?:|SELLOS?:/i)[1]
     const sealZone = (afterSeals || afterId).split(/BAGS OF|MARCAS|TOTAL BAGS|CONTAINER|CONTENEDOR/)[0]
     const seals = sealTokens(sealZone.replace(/^\s*(SEALS?|SELLOS?):?\s*/i, ''))
@@ -305,6 +336,9 @@ function parseContainersFromText(text) {
       })
     }
   }
+
+  // Lo del dashboard ya viene de la fila de cada contenedor; repartir por posición lo mezclaría.
+  if (fromDashboard && containers.length) return containers
 
   const blocks = parseCargoBlocks(upper)
   const cargoBlocks = (() => {
@@ -451,7 +485,12 @@ function parseHblFromPlainText(text, fileName, { notifyCells } = {}) {
   const marksMatch = t.match(/MARCAS:?\s*([\s\S]{0,220}?)(?=\d+\s+BAGS|TOTAL BAGS|HS CODE|FREIGHT COLLECT|$)/i)
   const marcaLine = t.match(/MARCA:\s*[A-Z0-9 ./-]+/i)?.[0] || ''
   const marksRaw = (lastBrandMarks || marksMatch?.[0] || marcaLine).split(/TOTAL BAGS|TOTAL CAJAS|TOTAL NET|HS CODE|FREIGHT COLLECT|\d+\s+BAGS\b/i)[0]
-  const totalsBags = parseNumber(t.match(/TOTAL BAGS\s*:?\s*([\d,]+)/i)?.[1])
+  // Fila de totales del HBL generado por el dashboard: "TOTAL" sola en su línea y la cifra debajo,
+  // en las columnas Nº of Pkgs ("TOTAL\n1450"), Gross Weight ("TOTAL\n100,775.00 KG") y
+  // Measurement ("TOTAL\n200 CBM").
+  const totalRow = (unit) => parseNumber(t.match(new RegExp(String.raw`(?:^|\n)TOTAL[ \t]*\n[ \t]*([\d,]+\.?\d*)${unit}[ \t]*(?=\n|$)`, 'i'))?.[1])
+  const totalsBags = totalRow('')
+    || parseNumber(t.match(/TOTAL BAGS\s*:?\s*([\d,]+)/i)?.[1])
     || parseNumber(t.match(/TOTAL CAJAS:\s*([\d.,]+)/i)?.[1])
     || parseNumber(t.match(/TOTAL PACKAGES:\s*([\d,]+)/i)?.[1])
     || parseNumber(t.match(/(\d+)\s+BAGS\s+\d+X40/i)?.[1])
@@ -479,7 +518,7 @@ function parseHblFromPlainText(text, fileName, { notifyCells } = {}) {
     /TOTAL NET WEIGHT:?\s*([\d,]+\.?\d*)/i,
     /N(?:ET)?\s*W(?:EIGHT)?:?\s*([\d,]+\.?\d*)/gi,
   ) || parseNumber(t.match(/PESO NETO TOTAL:\s*([\d.,]+)/i)?.[1]) || lastLargeKn
-  let totalGross = pickLargeWeight(
+  let totalGross = totalRow(String.raw`[ \t]*KGS?`) || pickLargeWeight(
     /TOTAL GROSS WEIGHT:?\s*([\d,]+\.?\d*)/i,
     /GROSS WEIGHT:\s*([\d,]+\.?\d*)/gi,
   ) || lastGrossLabeled
@@ -493,7 +532,8 @@ function parseHblFromPlainText(text, fileName, { notifyCells } = {}) {
     totalGross = labeled != null && labeled <= totalNet * 3 ? labeled : null
   }
   // La fila de totales de la proforma del formulario dice "CBM: 120"; antes, "TOTAL MEASUREMENT: 120 CBM".
-  const totalMeas = parseNumber(t.match(/TOTAL MEASUREMENT:?\s*([\d,]+\.?\d*)(?:\s*CBM)?/i)?.[1])
+  const totalMeas = totalRow(String.raw`[ \t]*CBM`)
+    ?? parseNumber(t.match(/TOTAL MEASUREMENT:?\s*([\d,]+\.?\d*)(?:\s*CBM)?/i)?.[1])
     ?? parseNumber(t.match(/\bCBM:\s*([\d,]+\.?\d*)/i)?.[1])
   const cbmHits = [...t.matchAll(/([\d,]+\.?\d*)\s*CBM/gi)]
     .map((m) => parseNumber(m[1]))
