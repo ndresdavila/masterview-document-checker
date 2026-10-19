@@ -980,6 +980,54 @@ export function compareHblMbl(hbl, mblParsed) {
     detail: 'Frases de la naviera. No se contrastan como incongruencia.',
   })
 
+  // PDF del MBL al que le faltan hojas ("Page 3 of 3" en un archivo de 2): lo que falta del MBL
+  // no es una diferencia con el HBL. Va un solo aviso en vez de una lista de "Falta en el MBL".
+  const incomplete = mbl.extras?.incomplete
+  if (incomplete) {
+    items.forEach((item) => {
+      // Contenedores que no están en las hojas que trae el PDF, o lo que de ellos no se ve.
+      if (item.group === 'Contenedores' && item.status === 'mismatch' && (item.hbl === '—' || /^(No está|Falta) en el MBL$/.test(item.detail))) item.status = 'skip'
+      // El total de bultos del MBL se arma con los contenedores que se ven: no es el del embarque.
+      if (item.id === 'bags' && item.status === 'mismatch') {
+        item.status = 'warning'
+        item.detail = 'Con hojas de menos, el MBL solo suma los contenedores que trae'
+      }
+    })
+    items.unshift({
+      id: 'mbl-incomplete',
+      group: 'Transporte',
+      label: 'PDF del MBL incompleto',
+      proforma: '—',
+      hbl: `${incomplete.pages} de ${incomplete.declared} páginas`,
+      status: 'warning',
+      detail: `Al PDF le faltan hojas (trae ${incomplete.pages} de ${incomplete.declared}); los contenedores que estaban en ellas no se pueden revisar. Prueba con el Final_BL o el SWB.`,
+    })
+  }
+
+  // Arrival Notice de COSCO en lugar del MBL: trae contenedores y totales, pero el viaje es el de
+  // llegada y como shipper solo va Masterview.
+  if (mbl.extras?.arrivalNotice) {
+    items.forEach((item) => {
+      if (item.id === 'voyage' && item.status === 'mismatch') {
+        item.status = 'warning'
+        item.detail = 'El Arrival Notice trae el viaje de llegada, no el de salida'
+      }
+      if (item.id === 'shipper' && item.status === 'mismatch' && item.detail === 'Falta el bloque') {
+        item.status = 'warning'
+        item.detail = 'El Arrival Notice no trae al exportador como shipper'
+      }
+    })
+    items.unshift({
+      id: 'mbl-arrival-notice',
+      group: 'Transporte',
+      label: 'Documento de la naviera',
+      proforma: '—',
+      hbl: 'Arrival Notice',
+      status: 'warning',
+      detail: 'Es el Arrival Notice de COSCO, no el MBL: se revisan contenedores y totales, pero no trae shipper, marcas ni referencias. Para revisar todo usa el Draft_BL o el Final_BL.',
+    })
+  }
+
   const visible = items.filter((i) => i.status !== 'skip')
   const mismatches = visible.filter((i) => i.status === 'mismatch')
   const warnings = visible.filter((i) => i.status === 'warning')

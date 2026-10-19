@@ -191,7 +191,10 @@ function parseZimContainers(text) {
     const seals = [...after.matchAll(/SEAL:\s*([A-Z0-9]+)/gi)].map((x) => x[1])
     const extra = sealTokens(after.split(/BAGS OF|MARCAS|SHIPPER'S LOAD|CONT TARE/)[0])
     const netKg = labeledNet ?? weights.netKg
-    const grossKg = labeledGross ?? weights.grossKg
+    // Columna WEIGHT de la lista anexa: la cifra justo antes de "SHIPPER'S LOAD STOWAGE & COUNT".
+    // Sirve cuando el KB de la descripción viene partido ("25, 228.50 KB").
+    const columnGross = parseNumber(after.match(/([\d,]+\.\d{2})\s+SHIPPER'S LOAD/)?.[1])
+    const grossKg = labeledGross ?? weights.grossKg ?? (columnGross != null && columnGross >= 1000 && columnGross < 40000 ? columnGross : null)
     containers.push({
       id,
       seal: [...new Set([...seals, ...extra])].join(', '),
@@ -243,8 +246,40 @@ function parseZimPartiesFromWords(words) {
   }
 }
 
+// Arrival Notice de COSCO (BL6466180070.PDF, AN_BL…): una fila por contenedor,
+// "40HQ 25228.5 KG 363 Bags CSGU7159320 32862424 FCL 363 Bags 25228.5 KG 60 CBM ECUADOR COCOA BEANS",
+// y al final "Total: 725 Bags 50387.5 KG 120 CBM". Con más de seis contenedores sigue en una hoja anexa
+// con las mismas columnas.
+const ARRIVAL_ROW = /\b\d{2}[A-Z]{2}\s+([\d.,]+)\s*KGS?\s+(\d[\d,]*)\s+[A-Z]+\s+([A-Z]{4}\d{7})\s+(.+?)\s+(?:FCL|LCL)\b.*?([\d.,]+)\s*CBM\s+(.*?)(?=\s+\d{2}[A-Z]{2}\s+[\d.,]+\s*KGS?\s|\s+TOTAL:|\s+\*\*CONTINUED|\s+CONTACT INFORMATION|\s+REMARKS|$)/gi
+const ARRIVAL_TOTAL = /TOTAL:\s*(\d[\d,]*)\s+[A-Z]+\s+([\d.,]+)\s*KGS?\s+([\d.,]+)\s*CBM/i
+
+function isArrivalNotice(text) {
+  return /ARRIVAL NOTICE/i.test(text) && /CNTR SIZE\s*\/\s*TYPE/i.test(text)
+}
+
+function parseArrivalContainers(t) {
+  const containers = []
+  for (const m of t.matchAll(ARRIVAL_ROW)) {
+    if (containers.some((c) => c.id === m[3])) continue
+    containers.push({
+      id: m[3],
+      seal: sealTokens(m[4]).join(', '),
+      pkgs: parseNumber(m[2]),
+      description: str(m[6]),
+      netKg: null,
+      grossKg: parseNumber(m[1]),
+      cbm: parseNumber(m[5]),
+    })
+  }
+  return containers
+}
+
 function parseCoscoContainers(text) {
   const t = str(text).toUpperCase()
+  if (isArrivalNotice(t)) {
+    const fromTable = parseArrivalContainers(t)
+    if (fromTable.length) return fromTable
+  }
   const seen = new Set()
   const containers = []
   const summary = /([A-Z]{4}\d{7})\s*\/\s*([A-Z0-9]+)\s*\/\s*(\d+)\s+(BAGS|BOXES|CARTONS|PACKAGES)\s*\/[^\n]*?\/[A-Z0-9]+\/([\d.]+)KGS(?:;([\d.]+)CBM)?/gi
@@ -423,14 +458,19 @@ function parseZim(text, fileName, words = []) {
 function parseCosco(text, fileName) {
   const t = str(text)
   const blNo = t.toUpperCase().match(/COSU\d{10}/)?.[0] || ''
-  const bookingNo = t.match(/Booking No\s*\.?\s*(\d{10})/i)?.[1]
+  const arrival = isArrivalNotice(t)
+  // En el Arrival Notice el primer número de 10 cifras puede ser un teléfono: el booking va en el B/L.
+  const bookingNo = (arrival && t.match(/B\/L Number:\s*COSU(\d{10})/i)?.[1])
+    || t.match(/Booking No\s*\.?\s*(\d{10})/i)?.[1]
     || t.match(/\b(\d{10})\b/)?.[1]
     || extractBooking(t)
-  const vessel = str(t.match(/Vessel:\s*([A-Z0-9 ]+?)\s+Voyage:/i)?.[1])
+  const arrivalVessel = t.match(/B\/L Vessel\/Voyage:\s*([A-Z0-9 .]+?)\s+([A-Z0-9]+)\s+Issued Date/i)
+  const vessel = str(arrivalVessel?.[1])
+    || str(t.match(/Vessel:\s*([A-Z0-9 ]+?)\s+Voyage:/i)?.[1])
     || str(captureAfter(t, /6\.\s*Ocean Vessel Voy\.?\s*No\.?/i, /7\.\s*Port of Loading|Service Contract/i))
       .replace(/\d{10}|COSU\d+ /g, ' ')
       .trim()
-  const voyage = str(t.match(/Voyage:\s*([A-Z0-9]+)/i)?.[1]) || findVoyage(`${vessel} ${t.match(/Ocean Vessel Voy\.?\s*No\.?\s*([^\n]+)/i)?.[1] || ''}`)
+  const voyage = str(arrivalVessel?.[2]) || str(t.match(/Voyage:\s*([A-Z0-9]+)/i)?.[1]) || findVoyage(`${vessel} ${t.match(/Ocean Vessel Voy\.?\s*No\.?\s*([^\n]+)/i)?.[1] || ''}`)
   const vesselClean = splitVesselVoyagePort(`${vessel} ${voyage}`).vessel || vessel
   const voyageClean = splitVesselVoyagePort(`${vessel} ${voyage}`).voyage || voyage
   const portLoading = str(
@@ -458,6 +498,7 @@ function parseCosco(text, fileName) {
   const containers = parseCoscoContainers(t)
   const refs = parseRefs(t)
   const headerTot = t.match(/(\d+)X40HQ CONTAINER\s+([\d.]+)KGS\s+([\d.]+)CBM/i)
+  const arrivalTot = isArrivalNotice(t) ? t.match(ARRIVAL_TOTAL) : null
   const summedNet = containers.reduce((s, c) => s + (c.netKg || 0), 0)
   const summedGross = containers.reduce((s, c) => s + (c.grossKg || 0), 0)
   const pickTotal = (labeled, summed) => {
@@ -471,15 +512,17 @@ function parseCosco(text, fileName) {
   const totalGross = pickTotal(
     parseTotalWeightKg(t, 'gross')
       || parseNumber(t.match(/\bGW:\s*([\d.,]+)/i)?.[1])
-      || parseNumber(headerTot?.[2]),
+      || parseNumber(headerTot?.[2])
+      || parseNumber(arrivalTot?.[2]),
     summedGross,
   )
   const cbm = parseNumber(headerTot?.[3])
+    || parseNumber(arrivalTot?.[3])
     || containers.reduce((s, c) => s + (c.cbm || 0), 0)
     || null
   const bags = containers.every((c) => c.pkgs != null)
     ? containers.reduce((s, c) => s + c.pkgs, 0)
-    : parseNumber(headerTot ? t.match(/CONTAINER:\s*(\d{3,5})\s+\dX40/i)?.[1] : null)
+    : parseNumber(arrivalTot?.[1]) || parseNumber(headerTot ? t.match(/CONTAINER:\s*(\d{3,5})\s+\dX40/i)?.[1] : null)
   const lastBrandMarks = (() => {
     const re = /(GLOBAL-COCOA|ECO-KAKAO|BURNEOEXPORT|K'?MEN|AGROARRIBA|JOHANSACORP|SAN GERARDO|OSELLA|GRANDSOUTH|AROMATIC|MOI FOODS|EXPORCAFE|MAQUITA|FUNDACION|NIRSA|SUDESPENSA)[\s\S]{0,80}?LOTE#?\s*[A-Z0-9-]+/gi
     const all = [...t.matchAll(re)]
@@ -489,7 +532,7 @@ function parseCosco(text, fileName) {
     || t.match(/MARKS\s+FDA:[\s\S]{0,280}?(?=-{10,}|OCEAN FREIGHT|$)/i)?.[0]
     || lastBrandMarks
     || ''
-  return finish({
+  const doc = finish({
     carrier: 'cosco',
     fileName,
     shipper,
@@ -511,6 +554,8 @@ function parseCosco(text, fileName) {
     },
     refs,
   }, t)
+  if (arrival) doc.extras.arrivalNotice = true
+  return doc
 }
 
 function parseOneFromWords(words) {
@@ -676,5 +721,9 @@ export function parseMblFromPlainText(text, fileName, page1Words = []) {
 
 export function parseMblFromPdfPages(pages, fileName) {
   const text = pages.map((p) => p.text).join('\n')
-  return parseMblFromPlainText(text, fileName, pages[0]?.words || [])
+  const doc = parseMblFromPlainText(text, fileName, pages[0]?.words || [])
+  // "Page 3 of 3" en un PDF de dos hojas: el archivo está incompleto.
+  const declared = Math.max(0, ...[...text.matchAll(/\bPAGE\s+\d+\s+OF\s+(\d+)\b/gi)].map((m) => Number(m[1])))
+  if (declared > pages.length) doc.extras = { ...doc.extras, incomplete: { pages: pages.length, declared } }
+  return doc
 }
