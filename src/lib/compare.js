@@ -60,6 +60,18 @@ function cleanMarks(text) {
   return str(text)
     .split(/\r?\n/)
     .map((l) => l.replace(/^(marks?|marcas):?\s*/i, '').replace(/^sps\s+/i, '').trim())
+    // Quitar solo lo que sobra (pesos KN/KB, TOTAL BAGS/NET/GROSS) y conservar el resto de la linea:
+    // "GLOBAL-COCOA S.A. TOTAL BAGS: 725 LOTE# 047" sigue aportando la marca.
+    .map((l) => l
+      .replace(/\d+(?:[.,]\d+)*\s*K\.?\s*[NB]\b\.?/gi, ' ')
+      .replace(/\bTOTAL\s+BAGS:?\s*[\d.,]*/gi, ' ')
+      // Unidad sola ("K.N", "KB") cuando el numero quedo en otra linea.
+      .replace(/(?<![\w.])K\.?\s*[NB](?![\w])\.?/gi, ' ')
+      // Peso suelto con decimales ("25,228.50", "69,00" cuyo KN quedo en otra linea): no es una marca.
+      .replace(/(?<![\w-])\d{1,3}(?:[.,]\d{3})*[.,]\d{2}(?:\s*KGS?\b\.?)?(?![\w-])/gi, ' ')
+      .replace(/\bTOTAL\s+(?:NET|GROSS)(?:\s+WEIGHT)?:?\s*[\d.,]*\s*(?:KGS?|KILOS?|MTS?)?/gi, ' ')
+      .replace(/\s+/g, ' ')
+      .trim())
     .filter((l) => {
       if (!l) return false
       if (/^(container|contenedor|seals?):/i.test(l)) return false
@@ -68,9 +80,8 @@ function cleanMarks(text) {
       if (/containers nos/i.test(l)) return false
       if (/^sps$/i.test(l)) return false
       if (/^sps\d/i.test(l)) return false
-      if (/\d+[.,]\d+\s*K\.?\s*[NB]\b/i.test(l)) return false
       if (/^product of ecuador$/i.test(l)) return false
-      if (/total bags|total net|total gross|^hs code|^dae|^freight collect|freight\s*&\s*charges/i.test(l)) return false
+      if (/^(?:KGS?|-)$|^hs code|^dae|^freight collect|freight\s*&\s*charges/i.test(l)) return false
       if (/if no value|declared liability|clause \d|received by(?: the)? carrier|freight payable|shippers declared|in witness|place and date of issue|your cargo|special clauses|freight charges/i.test(l)) return false
       if (/^naviera:|^shipper:|^p\.a\s*:/i.test(l)) return false
       if (/\bFREIGH COLLECT\b/i.test(l)) return false
