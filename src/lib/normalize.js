@@ -354,8 +354,10 @@ export function extractIsoId(text) {
   const seven = raw.match(/\b([A-Z]{4}\d{7})\b/)
   if (eight && !seven) return eight[1]
   if (seven) return seven[1]
-  const any = compact.match(/([A-Z]{4}\d{7})/)
-  if (any) return any[1]
+  // Con espacios dentro ("ZCSU 769095 2"), pero las 4 letras tienen que empezar palabra: "LOTE SGE3832026"
+  // no es el contenedor ESGE3832026.
+  const any = raw.match(/(?<![A-Z])([A-Z]{4})\s*((?:\d\s*){6}\d)(?!\d)/)
+  if (any) return any[1] + any[2].replace(/\s+/g, '')
   const three = compact.match(/^([A-Z]{3}\d{7})$/)
   return three ? three[1] : ''
 }

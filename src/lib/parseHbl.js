@@ -294,7 +294,7 @@ function parseContainersFromText(text) {
       continue
     }
     const afterSeals = afterId.split(/SEALS?:|SELLOS?:/i)[1]
-    const sealZone = (afterSeals || afterId).split(/BAGS OF|MARCAS|TOTAL BAGS|CONTAINER|CONTENEDOR/)[0]
+    const sealZone = (afterSeals || afterId).split(/BAGS OF|MARCAS|TOTAL BAGS|CONTAINER|CONTENEDOR|\bLOTE\b/)[0]
     const seals = sealTokens(sealZone.replace(/^\s*(SEALS?|SELLOS?):?\s*/i, ''))
     const beforeTotal = afterId.split(/TOTAL BAGS|TOTAL PACKAGES/)[0]
     const bagHitsNear = [...beforeTotal.matchAll(/(\d{3,4})\s+BAGS\b/gi)]
@@ -347,13 +347,16 @@ function parseContainersFromText(text) {
     return per.length === containers.length ? per : blocks
   })()
   if (containers.length === 1 && cargoBlocks.length > 1 && containers[0].pkgs == null) {
-    const sku = cargoBlocks.filter((b) => b.pkgs != null)
+    // La cifra suelta de la columna No. of Pkgs ("363\nBAGS") repite la del bloque descrito
+    // ("STC 363 BAGS OF ..."): es el mismo bulto, no otro SKU que haya que sumar.
+    const priced = cargoBlocks.filter((b) => b.pkgs != null)
+    const sku = priced.filter((b) => str(b.description) || !priced.some((d) => d !== b && d.pkgs === b.pkgs && str(d.description)))
     const distinct = new Set(sku.map((b) => `${b.pkgs}|${str(b.description)}`)).size
     if (sku.length > 1 && distinct > 1) {
       containers[0].pkgs = sku.reduce((s, b) => s + b.pkgs, 0)
       containers[0].description = sku.map((b) => b.description).filter(Boolean).join(' ')
     } else {
-      const best = cargoBlocks.reduce((a, b) => ((b.pkgs || 0) > (a.pkgs || 0) ? b : a))
+      const best = (sku.length ? sku : cargoBlocks).reduce((a, b) => ((b.pkgs || 0) > (a.pkgs || 0) ? b : a))
       containers[0].pkgs = best.pkgs
       containers[0].description = best.description
       containers[0].netKg = best.netKg

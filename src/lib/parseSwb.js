@@ -171,7 +171,7 @@ function parseSwbContainers(grid, startRow) {
 
     if (/^seals?:/i.test(c0)) {
       current.seals.push(...sealTokens(c0.replace(/^seals?:?\s*/i, '')))
-    } else if (current.id && isSealToken(c0) && !iso) {
+    } else if (current.id && isSealToken(c0) && !iso && !/^(DAE|FDA|HS CODE|CONTRACT|CONTRATO|REF|INVOICE|LOTE)/i.test(c0)) {
       current.seals.push(...sealTokens(c0))
     }
 
@@ -343,9 +343,35 @@ export function parseSwbFromGrid(grid, fileName = '') {
     if (!c.description) c.description = full.description
   })
 
+  // Marcas: la columna de "CONTAINER:" despues del ultimo contenedor y sus sellos, hasta Special Clauses /
+  // FREIGHT CHARGES. El texto corrido mezcla la descripcion de la columna de al lado.
+  const gridMarks = (() => {
+    const lbl = findLabel(grid, /^container:?$/i)
+    if (!lbl || !containers.length) return null
+    const ids = new Set(containers.map((c) => c.id))
+    const sealSet = new Set(containers.flatMap((c) => sealTokens(c.seal)))
+    const lines = []
+    for (let r = lbl.r; r < grid.length; r += 1) {
+      const parts = cellLines(grid[r]?.[lbl.c])
+      if (parts.some((p) => /^(special clauses|freight charges)/i.test(p))) break
+      lines.push(...parts)
+    }
+    let last = -1
+    lines.forEach((s, i) => {
+      const tokens = sealTokens(s)
+      if (/^(containers?|seals?):?$/i.test(s) || ids.has(extractIsoId(s)) || (tokens.length && tokens.every((t) => sealSet.has(t)))) last = i
+    })
+    const out = lines.slice(last + 1).filter((s) => !/^marks(\s+and\s+nos\.?)?:?$/i.test(s))
+    return out.length ? out : null
+  })()
+  const marks = gridMarks
+    ? { text: gridMarks.join('\n'), lote: fromText.marks?.lote || '', lines: gridMarks }
+    : fromText.marks
+
   return finalizeSwb(
     {
       ...fromText,
+      marks,
       shipper: shipper.name ? shipper : fromText.shipper,
       consignee: consignee.name ? consignee : fromText.consignee,
       notify: notify.name ? notify : fromText.notify,
@@ -428,6 +454,14 @@ export function parseSwbFromPdfPages(pages, fileName = '') {
   }
   if (fromGrouped.portDischarge && (!doc.portDischarge || /please check eta|size \/ type/i.test(doc.portDischarge))) {
     doc.portDischarge = fromGrouped.portDischarge
+  }
+  // La caja de marcas del PDF termina donde empieza el pie del formulario (Special Clauses, FREIGHT CHARGES).
+  const FOOTER = /^(special clauses|freight charges|received by the carrier)/i
+  if (doc.marks?.lines?.some((l) => FOOTER.test(str(l)))) {
+    const lines = doc.marks.lines.slice(0, doc.marks.lines.findIndex((l) => FOOTER.test(str(l))))
+    const cut = str(doc.marks.text).split(/\r?\n/)
+    const at = cut.findIndex((l) => FOOTER.test(str(l)))
+    doc.marks = { ...doc.marks, lines, text: at >= 0 ? cut.slice(0, at).join('\n') : doc.marks.text }
   }
   return finalizeSwb({
     ...doc,
