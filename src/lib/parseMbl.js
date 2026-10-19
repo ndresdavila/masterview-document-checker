@@ -726,9 +726,50 @@ export function parseMblFromPlainText(text, fileName, page1Words = []) {
   return parseCosco(text, fileName)
 }
 
+// COSCO: la columna "Marks & Nos." (izquierda) por posicion de palabras, en la caratula y las hojas anexas,
+// hasta TO BE CONTINUED / pie / linea de guiones. Se quitan CONTAINER:, SEALS:, contenedores y sellos.
+function coscoMarksFromPages(pages) {
+  const STOP = /TO BE CONTINUED|DECLARED CARGO VALUE|TOTAL NUMBER OF CONTAINERS|^-{10,}|^\*+$/i
+  const out = []
+  // Los sellos de un contenedor pueden seguir en la hoja anexa (GRANDSOUTH).
+  let afterSeals = false
+  for (const page of pages) {
+    const words = (page.words || []).filter((w) => str(w.str))
+    const lbl = words.find((w) => /^MARKS\s*&\s*NOS\.?$/i.test(str(w.str)) && w.x < 120)
+    if (!lbl) continue
+    const col = words.filter((w) => w.y > lbl.y + 10 && w.x < 135).sort((a, b) => a.y - b.y || a.x - b.x)
+    const rows = []
+    for (const w of col) {
+      const row = rows[rows.length - 1]
+      if (row && Math.abs(row.y - w.y) <= 3) row.words.push(w)
+      else rows.push({ y: w.y, words: [w] })
+    }
+    for (const row of rows) {
+      const line = row.words.sort((a, b) => a.x - b.x).map((w) => str(w.str)).join(' ').replace(/\s+/g, ' ').trim()
+      if (!line) continue
+      if (/^CONTAINER\s*\/\s*SEAL/i.test(line)) continue
+      if (STOP.test(line)) break
+      if (/^CONTAINER:?$/i.test(line)) { afterSeals = false; continue }
+      if (/^SEALS?:?$/i.test(line)) { afterSeals = true; continue }
+      if (/^[A-Z]{4}\d{7}$/i.test(line.replace(/\s+/g, ''))) continue
+      if (/^(MARKS|MARCAS)(\s+(AND|&)\s+NOS\.?)?:?$/i.test(line)) continue
+      // Resumen "OOCU9983884 /30727920" al pie de la columna.
+      if (/^[A-Z]{4}\d{7}\s*\/\s*[A-Z0-9]+$/i.test(line)) continue
+      if (afterSeals && /\d/.test(line) && /^[A-Z0-9\/,.\- ]+$/i.test(line) && !/\b(KN|KB|LOTE)\b/i.test(line)) continue
+      afterSeals = false
+      out.push(line)
+    }
+  }
+  return out.some((l) => /[A-Z]{3}/i.test(l)) ? out : null
+}
+
 export function parseMblFromPdfPages(pages, fileName) {
   const text = pages.map((p) => p.text).join('\n')
   const doc = parseMblFromPlainText(text, fileName, pages[0]?.words || [])
+  if (doc.carrier === 'cosco' && !doc.extras?.arrivalNotice) {
+    const lines = coscoMarksFromPages(pages)
+    if (lines) doc.marks = { ...doc.marks, text: lines.join('\n'), lines }
+  }
   // "Page 3 of 3" en un PDF de dos hojas: el archivo está incompleto.
   const declared = Math.max(0, ...[...text.matchAll(/\bPAGE\s+\d+\s+OF\s+(\d+)\b/gi)].map((m) => Number(m[1])))
   if (declared > pages.length) doc.extras = { ...doc.extras, incomplete: { pages: pages.length, declared } }
