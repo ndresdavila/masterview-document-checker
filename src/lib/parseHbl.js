@@ -404,6 +404,11 @@ function parseContainersFromText(text) {
   return containers
 }
 
+// Totales escritos en la descripción, con las variantes que acepta el formulario:
+// "TOTAL NET WEIGHT: 50,025.00", "TOTAL  NET WEIGHT :  50,025.00 KGS", "TOTAL GROSS WEIGHT (KG): 50,387.50".
+const TOTAL_NET = /TOTAL\s+NET\s+WEIGHT\s*(?:\(\s*KGS?\.?\s*\))?\s*:?\s*([\d,]+\.?\d*)/i
+const TOTAL_GROSS = /TOTAL\s+GROSS\s+WEIGHT\s*(?:\(\s*KGS?\.?\s*\))?\s*:?\s*([\d,]+\.?\d*)/i
+
 function parseHblFromPlainText(text, fileName, { notifyCells } = {}) {
   const t = text.replace(/\u00a0/g, ' ')
   const bookingNo = extractBookingPrefixed(t)
@@ -437,8 +442,9 @@ function parseHblFromPlainText(text, fileName, { notifyCells } = {}) {
 
   // Celdas de la tabla del Word bajo dos títulos "NOTIFY PARTY" seguidos (ver docxText.js):
   // la primera es el notify y la segunda el second notify, aunque no lleve etiqueta.
-  // El título "SECOND NOTIFY (Name and Full Address)" de la plantilla no cuenta como etiqueta.
-  const twinCells = notifyCells && !/\bSecond Notify\b(?!\s*\(Name and Full)/i.test(t) ? notifyCells : null
+  // El título "SECOND NOTIFY (Name and Full Address)" de la plantilla no cuenta como etiqueta, y con
+  // ese título las celdas valen aunque el cliente escriba "Second Notify" dentro de ellas.
+  const twinCells = notifyCells && (notifyCells.secondLabeled || !/\bSecond Notify\b(?!\s*\(Name and Full)/i.test(t)) ? notifyCells : null
 
   const notify = splitParty(
     startOfParty(
@@ -483,6 +489,8 @@ function parseHblFromPlainText(text, fileName, { notifyCells } = {}) {
     return all.length ? all[all.length - 1][0] : ''
   })()
   const marksMatch = t.match(/MARCAS:?\s*([\s\S]{0,220}?)(?=\d+\s+BAGS|TOTAL BAGS|HS CODE|FREIGHT COLLECT|$)/i)
+    // HBL del dashboard: la celda de marcas dice "MARKS:" y termina donde termina la celda.
+    || (DASHBOARD_TOTAL_ROW.test(t) ? t.match(/(?:^|\n)MARKS:[ \t]*\n[\s\S]*?(?=\n[ \t]*\n|$)/) : null)
   const marcaLine = t.match(/MARCA:\s*[A-Z0-9 ./-]+/i)?.[0] || ''
   const marksRaw = (lastBrandMarks || marksMatch?.[0] || marcaLine).split(/TOTAL BAGS|TOTAL CAJAS|TOTAL NET|HS CODE|FREIGHT COLLECT|\d+\s+BAGS\b/i)[0]
   // Fila de totales del HBL generado por el dashboard: "TOTAL" sola en su línea y la cifra debajo,
@@ -490,7 +498,7 @@ function parseHblFromPlainText(text, fileName, { notifyCells } = {}) {
   // Measurement ("TOTAL\n200 CBM").
   const totalRow = (unit) => parseNumber(t.match(new RegExp(String.raw`(?:^|\n)TOTAL[ \t]*\n[ \t]*([\d,]+\.?\d*)${unit}[ \t]*(?=\n|$)`, 'i'))?.[1])
   const totalsBags = totalRow('')
-    || parseNumber(t.match(/TOTAL BAGS\s*:?\s*([\d,]+)/i)?.[1])
+    || parseNumber(t.match(/TOTAL\s+BAGS\s*:?\s*([\d,]+)/i)?.[1])
     || parseNumber(t.match(/TOTAL CAJAS:\s*([\d.,]+)/i)?.[1])
     || parseNumber(t.match(/TOTAL PACKAGES:\s*([\d,]+)/i)?.[1])
     || parseNumber(t.match(/(\d+)\s+BAGS\s+\d+X40/i)?.[1])
@@ -515,11 +523,11 @@ function parseHblFromPlainText(text, fileName, { notifyCells } = {}) {
     .pop()
   const kgBesideCbm = parseNumber(t.match(/([\d,]+\.?\d*)\s*KG\s+(?:[\d,]+\.?\d*\s*LBS\s+)?[\d,]+\.?\d*\s*CBM/i)?.[1])
   const totalNet = pickLargeWeight(
-    /TOTAL NET WEIGHT:?\s*([\d,]+\.?\d*)/i,
+    TOTAL_NET,
     /N(?:ET)?\s*W(?:EIGHT)?:?\s*([\d,]+\.?\d*)/gi,
   ) || parseNumber(t.match(/PESO NETO TOTAL:\s*([\d.,]+)/i)?.[1]) || lastLargeKn
   let totalGross = totalRow(String.raw`[ \t]*KGS?`) || pickLargeWeight(
-    /TOTAL GROSS WEIGHT:?\s*([\d,]+\.?\d*)/i,
+    TOTAL_GROSS,
     /GROSS WEIGHT:\s*([\d,]+\.?\d*)/gi,
   ) || lastGrossLabeled
     || (kgBesideCbm != null && kgBesideCbm > 40000 ? kgBesideCbm : null)
@@ -528,7 +536,7 @@ function parseHblFromPlainText(text, fileName, { notifyCells } = {}) {
     || [...t.matchAll(/([\d.,]+)\s+GROSS WEIGHT/gi)].map((m) => parseNumber(m[1])).filter((n) => n != null && n > 10000).pop()
     || lastLargeKb
   if (totalNet != null && totalGross != null && totalGross > totalNet * 3) {
-    const labeled = parseNumber(t.match(/TOTAL GROSS WEIGHT:?\s*([\d.,]+)/i)?.[1])
+    const labeled = parseNumber(t.match(TOTAL_GROSS)?.[1])
     totalGross = labeled != null && labeled <= totalNet * 3 ? labeled : null
   }
   // La fila de totales de la proforma del formulario dice "CBM: 120"; antes, "TOTAL MEASUREMENT: 120 CBM".

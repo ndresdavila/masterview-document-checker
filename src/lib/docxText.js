@@ -34,7 +34,10 @@ function findNotifyCells(element) {
           const next = all[k + 1] || ''
           contacts.push(value ? `CONTACT: ${value}` : next && !/^CONTACT/i.test(next) ? `CONTACT: ${next}` : '')
         })
-        return [0, 1].map((k) => [cellLines(cells[k] || {}), contacts[k] || ''].filter(Boolean).join('\n'))
+        const found = [0, 1].map((k) => [cellLines(cells[k] || {}), contacts[k] || ''].filter(Boolean).join('\n'))
+        // Con el título "SECOND NOTIFY" (plantilla actual) cada celda es la suya, diga lo que diga el texto.
+        found.secondLabeled = /^\s*SECOND NOTIFY/i.test(toText(head[1]))
+        return found
       }
     }
   }
