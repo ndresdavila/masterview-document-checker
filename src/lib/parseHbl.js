@@ -806,6 +806,29 @@ export function parseProformaFromPlainText(text, fileName, layout = {}) {
   doc.kind = 'proforma'
   if (doc.blNo && doc.bookingNo && canon(doc.blNo) === canon(doc.bookingNo)) doc.blNo = ''
   if (/^(ZIMU|GYEG)/i.test(doc.blNo)) doc.blNo = ''
+  const pkgList = pkgsColumnList(text, doc.containers.length)
+  if (pkgList) doc.containers.forEach((c, i) => { c.pkgs = pkgList[i] })
   return doc
+}
+
+// Proforma Word con la columna NO. OF PKGS aparte: tras los contenedores viene un bloque de cifras sueltas
+// ("362\n363" o "363\n362\n363\n362\n1450"), una por contenedor y en su orden. Solo se usa si la suma
+// cuadra con el total escrito (linea final del bloque o "725 BAGS OF ..."); si no, no se asigna nada.
+function pkgsColumnList(text, count) {
+  if (count < 1) return null
+  // Word deja una linea vacia entre parrafos de la celda.
+  const lines = str(text).split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
+  const totals = [...str(text).matchAll(/\b(\d{3,5})\s+BAGS?\s+OF\b/gi)].map((m) => Number(m[1]))
+  for (let i = 0; i < lines.length; i += 1) {
+    if (!/^\d{3,5}$/.test(lines[i]) || (i > 0 && /^\d{3,5}$/.test(lines[i - 1]))) continue
+    const run = []
+    for (let j = i; j < lines.length && /^\d{3,5}$/.test(lines[j]); j += 1) run.push(Number(lines[j]))
+    const list = run.slice(0, count)
+    if (list.length !== count || list.some((n) => n < 100 || n >= 800)) continue
+    const sum = list.reduce((s, n) => s + n, 0)
+    const written = run.length > count ? run[count] : null
+    if (written === sum || (written == null && totals.includes(sum))) return list
+  }
+  return null
 }
 
