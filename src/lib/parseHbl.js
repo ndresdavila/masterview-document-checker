@@ -495,7 +495,7 @@ function parseHblFromPlainText(text, fileName, { notifyCells } = {}) {
     // HBL del dashboard: la celda de marcas dice "MARKS:" y termina donde termina la celda.
     || (DASHBOARD_TOTAL_ROW.test(t) ? t.match(/(?:^|\n)MARKS:[ \t]*\n[\s\S]*?(?=\n[ \t]*\n|$)/) : null)
   const marcaLine = t.match(/MARCA:\s*[A-Z0-9 ./-]+/i)?.[0] || ''
-  const marksRaw = (lastBrandMarks || marksMatch?.[0] || marcaLine).split(/TOTAL BAGS|TOTAL CAJAS|TOTAL NET|HS CODE|FREIGHT COLLECT|\d+\s+BAGS\b/i)[0]
+  const marksRaw = (lastBrandMarks || marksMatch?.[0] || marcaLine).split(/TOTAL BAGS|TOTAL CAJAS|TOTAL NET|HS CODE|FREIGHT COLLECT|\d+\s+BAG(?:S\b|\(S\))|INVOICE NO\b/i)[0]
   // Fila de totales del HBL generado por el dashboard: "TOTAL" sola en su línea y la cifra debajo,
   // en las columnas Nº of Pkgs ("TOTAL\n1450"), Gross Weight ("TOTAL\n100,775.00 KG") y
   // Measurement ("TOTAL\n200 CBM").
@@ -781,6 +781,8 @@ function parseHblFromPdfWords(words, fileName, extraText = '') {
           if (/^MARCAS?\b/.test(s) && s.length < 48) n -= 80
           return n
         }
+        // Texto corrido que mezclo la columna de descripcion ("726 BAG(S) OF...", "INVOICE NO."): vale la columna.
+        if (layout && /\d+\s+BAG\(S\)|INVOICE\s+NO\b/i.test(fallback) && !/\d+\s+BAG\(S\)|INVOICE\s+NO\b/i.test(layout)) return layout
         if (/LOTE/i.test(fallback) && !/LOTE/i.test(layout)) return fallback
         if (/LOTE/i.test(layout) && !/LOTE/i.test(fallback)) return layout
         return score(layout) >= score(fallback) ? layout : fallback
