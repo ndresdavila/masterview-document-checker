@@ -690,6 +690,15 @@ function parseHblFromPdfWords(words, fileName, extraText = '') {
     vessel = split.vessel
     voyage = split.voyage
     portLoading = split.portLoading
+    // HBL de envios ONE: buque (x~25), viaje (x~119, "2626WN") y puerto (x~192) en columnas de la misma linea;
+    // el viaje con dos letras no lo reconoce splitVesselVoyagePort. Solo si no salio viaje.
+    const voyWord = row.find((w) => w.x >= 100 && w.x < 185 && /^\d{3,4}[A-Z]{1,2}$/.test(str(w.str)))
+    if (!voyage && voyWord) {
+      const col = (x0, x1) => row.filter((w) => w.x >= x0 && w.x < x1).map((w) => str(w.str)).filter(Boolean).join(' ').trim()
+      vessel = col(0, voyWord.x)
+      voyage = str(voyWord.str)
+      portLoading = col(185, 300) || portLoading
+    }
   }
   const portDischarge = textIn(words, podBox)
     .filter((l) => !/port of discharge|place of delivery/i.test(l))
