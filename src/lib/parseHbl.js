@@ -293,8 +293,9 @@ function parseContainersFromText(text) {
       containers.push({ id, seal: sealTokens(sealZone).join(', '), ...figures })
       continue
     }
-    const afterSeals = afterId.split(/SEALS?:|SELLOS?:/i)[1]
-    const sealZone = (afterSeals || afterId).split(/BAGS OF|MARCAS|TOTAL BAGS|CONTAINER|CONTENEDOR|\bLOTE\b/)[0]
+    // "SEALS" puede venir sin dos puntos (SWB de ZIM); el bloque termina en el siguiente contenedor.
+    const afterSeals = afterId.split(/SEALS?:|SELLOS?:|(?:^|\n)[ \t]*(?:SEALS?|SELLOS?)[ \t]*(?=\n)/i)[1]
+    const sealZone = (afterSeals || afterId).split(/BAGS OF|MARCAS|TOTAL BAGS|CONTAINER|CONTENEDOR|\bLOTE\b|\b[A-Z]{4}\d{7}\b/)[0]
     const seals = sealTokens(sealZone.replace(/^\s*(SEALS?|SELLOS?):?\s*/i, ''))
     const beforeTotal = afterId.split(/TOTAL BAGS|TOTAL PACKAGES/)[0]
     const bagHitsNear = [...beforeTotal.matchAll(/(\d{3,4})\s+BAGS\b/gi)]
@@ -705,7 +706,11 @@ function parseHblFromPdfWords(words, fileName, extraText = '') {
     .join(' ')
 
   const descText = textIn(words, descBox).join('\n')
-  const leftCargo = textIn(words, { x0: 0, x1: 178, y0: 300, y1: 700 }).join('\n')
+  // La caja de carga empieza en y=300, salvo que el primer contenedor de la columna izquierda este un poco mas arriba.
+  const firstIdY = words
+    .filter((w) => w.x < 178 && w.y >= 240 && w.y < 300 && /^[A-Z]{4}\d{7}$/.test(str(w.str)))
+    .reduce((m, w) => Math.min(m, w.y), 300)
+  const leftCargo = textIn(words, { x0: 0, x1: 178, y0: Math.min(300, firstIdY - 1), y1: 700 }).join('\n')
   // Some SWB layouts start the description column left of x=178 (e.g. x~164-177).
   // Stop the marks box just before it so marks lines do not merge with descriptions.
   const descColX = words
@@ -732,14 +737,21 @@ function parseHblFromPdfWords(words, fileName, extraText = '') {
   const weightText = textIn(words, weightBox).join(' ')
   const page1 = groupLines(words).map((l) => l.text).join('\n')
   const fromText = parseHblFromPlainText([page1, extraText].filter(Boolean).join('\n'), fileName)
-  const leftContainers = parseContainersFromText(`${leftCargo}\n${descText}`)
+  // Si el primer "CONTAINER:" quedo por encima de la caja (SWB de ZIM), el primer contenedor no tendria bloque propio.
+  const leftText = `${leftCargo}\n${descText}`
+  const firstId = leftText.toUpperCase().search(/\b[A-Z]{4}\d{7}\b/)
+  const firstLbl = leftText.toUpperCase().search(/(?:CONTAINER|CONTENEDOR):/)
+  const leftContainers = parseContainersFromText(firstId >= 0 && firstLbl > firstId
+    ? `${leftText.slice(0, firstId)}CONTAINER: ${leftText.slice(firstId)}`
+    : leftText)
   const fullContainers = fromText.containers
   const cargoScore = (list) => list.reduce((s, c) => s + (c.pkgs != null ? 2 : 0) + (c.grossKg != null ? 2 : 0) + (c.description ? 1 : 0), 0)
   const containers = (cargoScore(fullContainers) >= cargoScore(leftContainers) && fullContainers.length
     ? fullContainers
     : (leftContainers.length ? leftContainers : fullContainers))
   containers.forEach((c, i) => {
-    const left = leftContainers.find((x) => x.id === c.id) || leftContainers[i]
+    // Por posicion solo si la lista de la columna tiene los mismos contenedores; si no, se cruzan sellos de otro.
+    const left = leftContainers.find((x) => x.id === c.id) || (leftContainers.length === containers.length && !leftContainers.some((x) => containers.some((y) => y.id === x.id)) ? leftContainers[i] : null)
     const full = fullContainers.find((x) => x.id === c.id) || fullContainers[i]
     if (left?.seal) c.seal = left.seal
     if (c.pkgs == null) c.pkgs = full?.pkgs ?? left?.pkgs ?? null
