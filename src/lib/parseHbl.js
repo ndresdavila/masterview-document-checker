@@ -802,8 +802,10 @@ function parseHblFromPdfWords(words, fileName, extraText = '') {
           if (/^MARCAS?\b/.test(s) && s.length < 48) n -= 80
           return n
         }
-        // Texto corrido que mezclo la columna de descripcion ("726 BAG(S) OF...", "INVOICE NO."): vale la columna.
-        if (layout && /\d+\s+BAG\(S\)|INVOICE\s+NO\b/i.test(fallback) && !/\d+\s+BAG\(S\)|INVOICE\s+NO\b/i.test(layout)) return layout
+        // Texto corrido que mezclo la columna de descripcion ("726 BAG(S) OF...", "INVOICE NO.", "REFERENCE:",
+        // "GROSS WEIGHT:" del SWB de ZIM): vale la columna de marcas.
+        const DESC_MIX = /\d+\s+BAG\(S\)|INVOICE\s+NO\b|\bREFERENCE:|\b(GROSS|NET) WEIGHT:|CONTRACT#:/i
+        if (layout && DESC_MIX.test(fallback) && !DESC_MIX.test(layout)) return layout
         if (/LOTE/i.test(fallback) && !/LOTE/i.test(layout)) return fallback
         if (/LOTE/i.test(layout) && !/LOTE/i.test(fallback)) return layout
         return score(layout) >= score(fallback) ? layout : fallback
