@@ -262,9 +262,16 @@ const DASHBOARD_TOTAL_ROW = /(?:^|\n)TOTAL[ \t]*\n[ \t]*[\d,]+\.?\d*[ \t]*(?:KGS
 function dashboardFigures(afterId) {
   const cells = afterId.split(/\nMARKS:|\nTOTAL[ \t]*\n/)[0].split(/\n[ \t]*\n/).map((c) => c.trim()).slice(1)
   const pick = (re) => parseNumber(cells.map((c) => c.match(re)?.[1]).find(Boolean))
-  // El neto no tiene columna: va en la descripción del contenedor ("NET WEIGHT: 24,978.00 KG").
-  // Sin marcas, la fila del resumen sigue a la del último contenedor: su "TOTAL NET WEIGHT" no cuenta.
-  const nets = cells.flatMap((c) => [...c.matchAll(/(?<!TOTAL\s{1,3})NET\s+WEIGHT\s*(?:\(\s*KGS?\s*\))?\s*:?\s*([\d,]+\.?\d*)/gi)].map((m) => parseNumber(m[1])))
+  // El neto no tiene columna: va en la descripción del contenedor ("NET WEIGHT: 24,978.00 KG",
+  // "NW: 24978.00", "24978.00 KN - 25159.00 KB").
+  // Sin marcas, la fila del resumen sigue a la del último contenedor: su "TOTAL NET WEIGHT" o su
+  // "NW: 100050.00 KGS" no cuentan. La fila del contenedor termina en su medida ("50 CBM").
+  const cbmAt = cells.findIndex((c) => /^[\d,]+\.?\d*[ \t]*CBM$/i.test(c))
+  const row = cbmAt >= 0 ? cells.slice(0, cbmAt + 1) : cells
+  const nets = row.flatMap((c) => [
+    ...c.matchAll(/(?<!TOTAL\s{1,3})(?:NET\s+WEIGHT|\bN\.?\s?W\.?(?![A-Z]))\s*(?:\(\s*KGS?\s*\))?\s*:?\s*([\d,]+\.?\d*)/gi),
+    ...c.matchAll(/([\d,]+\.?\d*)\s*(?:K\.?\s*N|N\.?\s*W|KG\s*NET)\b/gi),
+  ].map((m) => parseNumber(m[1])))
     .filter((n) => n != null)
   const figure = /^[\d,]+\.?\d*(?:[ \t]*(?:KGS?|CBM))?$/i
   return {
@@ -473,7 +480,22 @@ function parseHblFromPlainText(text, fileName, { notifyCells } = {}) {
     || t.split(/\r?\n/).map(str).find((l) => findVoyage(l))
     || ''
 
-  const split = splitVesselVoyagePort(vesselLine)
+  // Plantillas del formulario y del dashboard: el título "VESSEL<tab>VOY" y, más abajo, los valores en las
+  // mismas columnas. El HBL los pone en la línea siguiente ("CMA CGM ALIAGA<tab>AMX010N19<tab>GUAYAQUIL -
+  // ECUADOR"); la proforma, tras el resto de títulos de la fila ("MSC ANNA<tab>0MX1RN1MA"), antes de
+  // PORT OF DISCHARGE. Las columnas valen aunque el viaje no tenga una forma conocida.
+  const columns = (() => {
+    const lines = t.split(/\r?\n/)
+    const head = lines.findIndex((l) => /^\s*VESSEL\s*\t\s*VOY/i.test(l))
+    if (head < 0) return null
+    const after = lines.slice(head + 1)
+    const stop = after.findIndex((l) => /PORT OF DISCHARGE/i.test(l))
+    const values = (stop >= 0 ? after.slice(0, stop) : after.slice(0, 12)).find((l) => l.includes('\t') && l.trim())
+    if (!values) return null
+    const [vessel, voyage, port] = values.split('\t').map((c) => str(c))
+    return { vessel, voyage, portLoading: port || '' }
+  })()
+  const split = columns || splitVesselVoyagePort(vesselLine)
   const vessel = split.vessel
   const polFromLabel = extractPort(t, /Port of Loading/i, /Port of Discharge|Place of Delivery|Marks &/i, 'loading')
     || pickPortFromBlock(captureAfter(t, /Place of Receipt/i, /Vessel|Port of Loading|Port of Discharge/i), 'loading')
@@ -829,6 +851,8 @@ export function parseProformaFromPlainText(text, fileName, layout = {}) {
   doc.kind = 'proforma'
   if (doc.blNo && doc.bookingNo && canon(doc.blNo) === canon(doc.bookingNo)) doc.blNo = ''
   if (/^(ZIMU|GYEG)/i.test(doc.blNo)) doc.blNo = ''
+  // La plantilla actual tiene su propia casilla SECOND NOTIFY; en las anteriores iba en la descripción.
+  doc.secondNotifyBoxed = Boolean(layout.notifyCells?.secondLabeled)
   const pkgList = pkgsColumnList(text, doc.containers.length)
   if (pkgList) doc.containers.forEach((c, i) => { c.pkgs = pkgList[i] })
   return doc

@@ -457,7 +457,9 @@ export function compareDocs(proforma, hbl) {
     b: partyText(hbl.secondNotify),
     mode: 'address',
   })
-  if (second.status === 'match') {
+  if (second.status === 'match' && proforma.secondNotifyBoxed) {
+    second.detail = 'Coincide'
+  } else if (second.status === 'match') {
     second.status = 'relocated'
     second.detail = 'En la proforma iba en la descripción; en el HBL pasó a su casilla. Correcto.'
   } else if (second.proforma === '—' && second.hbl !== '—') {
