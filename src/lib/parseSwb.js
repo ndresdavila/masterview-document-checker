@@ -165,6 +165,11 @@ function parseSwbContainers(grid, startRow) {
       flush()
       break
     }
+    // La fila MARKS cierra el bloque de contenedores: lo que sigue es la descripcion general del embarque.
+    if (/^marks\b/i.test(c0)) {
+      flush()
+      break
+    }
 
     const iso = extractIsoId(c0) || extractIsoId(joined)
     if (iso && !current.id) current.id = iso
@@ -177,7 +182,7 @@ function parseSwbContainers(grid, startRow) {
 
     const bagsHit = `${desc} ${joined}`.match(/(\d{2,4})\s+BAGS OF/i)
     const pkgs = bagsHit ? parseNumber(bagsHit[1]) : null
-    if (pkgs != null && pkgs >= 100 && pkgs < 800) current.pkgs = pkgs
+    if (pkgs != null && pkgs >= 100 && pkgs < 800 && current.pkgs == null) current.pkgs = pkgs
 
     if (/cocoa|beans|bags of|arabica|coffee|rice|cajas|boxes/i.test(desc)) {
       if (!current.description || !current.description.includes(desc)) {
