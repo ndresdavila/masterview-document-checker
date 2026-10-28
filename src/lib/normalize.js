@@ -192,13 +192,16 @@ export function splitVesselVoyagePort(text) {
       .replace(/\s+/g, ' ')
       .trim()
 
+  // Puerto pegado al final del nombre del buque en el HBL ("CMA CGM ALIAGA AMX010N19 GUAYAQUIL - ECUADOR").
+  const stripPort = (value) => str(value).replace(/\s*-?\s*\bGUAYAQUIL\b(\s*-?\s*ECUADOR)?\s*$/i, '').trim()
+
   if (!voyage) {
-    return { vessel: stripLabels(raw), voyage: '', portLoading: '' }
+    return { vessel: stripPort(stripLabels(raw)), voyage: '', portLoading: '' }
   }
   const unglued = raw.replace(new RegExp(`([^\\s])(${voyage})\\b`, 'i'), `$1 ${voyage}`)
   const parts = unglued.split(new RegExp(`\\b${voyage}\\b`, 'i'))
   return {
-    vessel: stripLabels(parts[0] || ''),
+    vessel: stripPort(stripLabels(parts[0] || '')),
     voyage,
     portLoading: stripLabels(parts.slice(1).join(' ')),
   }

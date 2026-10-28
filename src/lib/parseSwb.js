@@ -461,7 +461,7 @@ export function parseSwbFromPdfPages(pages, fileName = '') {
     const near = lbl ? w1.filter((w) => str(w.str) && w.y > lbl.y + 2 && w.y < lbl.y + 24 && w.x >= lbl.x - 5 && w.x < lbl.x + 90) : []
     const y0 = Math.min(...near.map((w) => w.y))
     const below = near.filter((w) => Math.abs(w.y - y0) <= 2).sort((a, b) => a.x - b.x)
-    const m = below.map((w) => str(w.str)).join(' ').replace(/\s+/g, ' ').trim().match(/^(.+?)\s+(\d{3,4}[A-Z]{1,2})$/)
+    const m = below.map((w) => str(w.str)).join(' ').replace(/\s+/g, ' ').trim().match(/^(.+?)\s+([A-Z]{0,4}\d{2,4}[A-Z]{0,2}\d{0,2})$/)
     if (m) { doc.vessel = m[1]; doc.voyage = m[2] }
   }
   if (fromGrouped.notify?.name && isCarrierBox(doc.notify)) doc.notify = fromGrouped.notify
