@@ -1,6 +1,5 @@
 import * as XLSX from 'xlsx'
 import {
-  findFreightTerm,
   str,
   parseNumber,
   ISO_RE,
@@ -553,7 +552,6 @@ export function parseProformaArrayBuffer(buffer, fileName = '') {
     },
     extras: {
       ruc: splitParty(shipperLines).ruc,
-      freightTerm: findFreightTerm(grid.map((row) => (row || []).map(str).join(' ')).join('\n')),
     },
   }
 }

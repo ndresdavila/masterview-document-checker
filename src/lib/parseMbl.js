@@ -1,6 +1,4 @@
 import {
-  findOnBoardDate,
-  findFreightTerm,
   str,
   parseNumber,
   extractBooking,
@@ -712,8 +710,6 @@ function finish(doc, text) {
     ruc,
     freightCollect: /FREIGHT COLLECT/i.test(text),
     shippedOnBoard: /SHIPPED ON BOARD/i.test(text),
-    onBoardDate: findOnBoardDate(text),
-    freightTerm: findFreightTerm(text),
     hqLine: text.match(/\d+\s*X\s*\d+\s*(?:ST|HQ|GP|DRY)\b[^\n]{0,80}/i)?.[0] || '',
   }
   return doc
