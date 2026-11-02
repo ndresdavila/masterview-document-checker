@@ -1,5 +1,7 @@
 import * as XLSX from 'xlsx'
 import {
+  findOnBoardDate,
+  findFreightTerm,
   str,
   parseNumber,
   ISO_RE,
@@ -263,6 +265,8 @@ export function finalizeSwb(doc, fileName = '') {
       ruc: shipper?.ruc || restExtras.ruc || '',
       freightCollect,
       freightTypo,
+      onBoardDate: findOnBoardDate(raw) || restExtras.onBoardDate || '',
+      freightTerm: findFreightTerm(raw) || restExtras.freightTerm || '',
     },
   }
 }

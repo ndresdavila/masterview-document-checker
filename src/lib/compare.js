@@ -1,4 +1,5 @@
 import {
+  formatIsoDate,
   str,
   canon,
   softenAddress,
@@ -17,6 +18,36 @@ import {
   sealsMatch,
   bookingsMatch,
 } from './normalize.js'
+
+// Fecha de embarque (SHIPPED ON BOARD). Un dia de diferencia suele ser la hora local vs la del sistema de la
+// naviera, pero hay que verlo: aviso. Mas de un dia: discrepancia. Si un lado no trae fecha, no se puntua.
+export function onBoardDateItem(left, right, leftName, rightName) {
+  const a = left?.extras?.onBoardDate || ''
+  const b = right?.extras?.onBoardDate || ''
+  const base = { id: 'onboard-date', group: 'Transporte', label: 'Fecha shipped on board', proforma: formatIsoDate(a) || '—', hbl: formatIsoDate(b) || '—' }
+  if (!a || !b) {
+    return { ...base, status: 'skip', detail: `No se lee la fecha en ${!a ? leftName : rightName}` }
+  }
+  const days = Math.round(Math.abs(Date.parse(a) - Date.parse(b)) / 86400000)
+  if (!days) return { ...base, status: 'match' }
+  if (days === 1) return { ...base, status: 'warning', detail: `Difiere 1 día entre ${leftName} y ${rightName}` }
+  return { ...base, status: 'mismatch', detail: `Difiere ${days} días entre ${leftName} y ${rightName}` }
+}
+
+// Condicion del flete (PREPAID / COLLECT). Distinta: discrepancia. Ambas en un mismo documento: aviso.
+export function freightTermItem(left, right, leftName, rightName) {
+  const a = left?.extras?.freightTerm || ''
+  const b = right?.extras?.freightTerm || ''
+  const base = { id: 'freight-terms', group: 'Transporte', label: 'Flete (PREPAID / COLLECT)', proforma: a || '—', hbl: b || '—' }
+  if (!a || !b) {
+    return { ...base, status: 'skip', detail: `No consta en ${!a ? leftName : rightName}` }
+  }
+  if (a.includes('/') || b.includes('/')) {
+    return { ...base, status: 'warning', detail: `${a.includes('/') ? leftName : rightName} trae PREPAID y COLLECT a la vez` }
+  }
+  if (a === b) return { ...base, status: 'match' }
+  return { ...base, status: 'mismatch', detail: `${leftName} dice ${a}; ${rightName} dice ${b}` }
+}
 
 function bagsTotal(doc) {
   const labeled = doc?.totals?.bags
@@ -631,6 +662,7 @@ export function compareDocs(proforma, hbl) {
       ? 'Frases propias del HBL. No se contrastan contra la proforma.'
       : 'No consta en el HBL.',
   })
+  items.push(freightTermItem(proforma, hbl, 'la proforma', 'el HBL'))
 
   if (hbl.extras?.hqLine) {
     items.push({
@@ -992,6 +1024,8 @@ export function compareHblMbl(hbl, mblParsed) {
     status: freightBits.length ? 'extra' : 'skip',
     detail: 'Frases de la naviera. No se contrastan como incongruencia.',
   })
+  items.push(onBoardDateItem(hbl, mbl, 'el HBL', 'el MBL'))
+  items.push(freightTermItem(hbl, mbl, 'el HBL', 'el MBL'))
 
   // PDF del MBL al que le faltan hojas ("Page 3 of 3" en un archivo de 2): lo que falta del MBL
   // no es una diferencia con el HBL. Va un solo aviso en vez de una lista de "Falta en el MBL".
@@ -1296,6 +1330,8 @@ export function compareHblSwb(hbl, swb) {
       detail: bits.length ? 'Frases de flete / embarque' : '',
     })
   }
+  items.push(onBoardDateItem(hbl, swb, 'el HBL', 'el SWB'))
+  items.push(freightTermItem(hbl, swb, 'el HBL', 'el SWB'))
 
   items.forEach((item) => {
     if (item.id === 'dae' && item.status === 'mismatch' && item.proforma !== '—' && item.hbl !== '—') {

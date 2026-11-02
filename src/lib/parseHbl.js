@@ -6,6 +6,8 @@ import {
   BL_RE,
   splitVesselVoyagePort,
   findVoyage,
+  findOnBoardDate,
+  findFreightTerm,
   extractBooking,
   extractIsoId,
   sealTokens,
@@ -621,6 +623,8 @@ function parseHblFromPlainText(text, fileName, { notifyCells } = {}) {
       ruc,
       freightCollect: /FREIGHT COLLECT/i.test(t),
       shippedOnBoard: /SHIPPED ON BOARD/i.test(t),
+      onBoardDate: findOnBoardDate(t),
+      freightTerm: findFreightTerm(t),
       hqLine: t.match(/\d+\s*X\s*\d+\s*(?:ST|HQ|GP|DRY)\b[^\n]{0,80}/i)?.[0]
         || t.match(/\dX40HQ CONTAINERS STC/i)?.[0]
         || '',

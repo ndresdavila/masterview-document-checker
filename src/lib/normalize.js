@@ -384,3 +384,55 @@ export function commodityCanon(value) {
     .replace(/\s+/g, ' ')
     .trim()
 }
+
+// Fechas sueltas de los BL: "01 NOV. 2026", "02/11/2026" (dd/mm), "Nov 01st 2026", "July 20th 2026". Devuelve AAAA-MM-DD o ''.
+const MONTHS = { JAN: 1, FEB: 2, MAR: 3, APR: 4, MAY: 5, JUN: 6, JUL: 7, AUG: 8, SEP: 9, OCT: 10, NOV: 11, DEC: 12, ENE: 1, ABR: 4, AGO: 8, SET: 9, DIC: 12 }
+const MONTH_NAMES = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC']
+function isoDate(y, m, d) {
+  const yy = Number(y) < 100 ? Number(y) + 2000 : Number(y)
+  const mm = Number(m)
+  const dd = Number(d)
+  if (!(mm >= 1 && mm <= 12 && dd >= 1 && dd <= 31 && yy > 2000 && yy < 2100)) return ''
+  return `${yy}-${String(mm).padStart(2, '0')}-${String(dd).padStart(2, '0')}`
+}
+
+export function parseDateLoose(value) {
+  const t = str(value).trim()
+  let m = t.match(/^(\d{1,2})[\s./-]*([A-Za-z]{3})[A-Za-z]*\.?[\s./,-]*(\d{4})/)
+  if (m && MONTHS[m[2].toUpperCase()]) return isoDate(m[3], MONTHS[m[2].toUpperCase()], m[1])
+  m = t.match(/^([A-Za-z]{3})[A-Za-z]*\.?\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})/i)
+  if (m && MONTHS[m[1].toUpperCase()]) return isoDate(m[3], MONTHS[m[1].toUpperCase()], m[2])
+  m = t.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})/)
+  if (m) return isoDate(m[3], m[2], m[1])
+  m = t.match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (m) return isoDate(m[1], m[2], m[3])
+  return ''
+}
+
+export function formatIsoDate(iso) {
+  const m = str(iso).match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  return m ? `${m[3]} ${MONTH_NAMES[Number(m[2]) - 1]} ${m[1]}` : ''
+}
+
+// Fecha de "SHIPPED ON BOARD" / "LADEN ON BOARD" (tambien la errata "SHIPPER ON BOARD" de algunos SWB).
+// Si sale varias veces con fecha, vale la ultima (el sello del pie del documento).
+export function findOnBoardDate(text) {
+  const t = str(text).replace(/[\s,]+/g, ' ')
+  const re = /(?:SHIPPE[DR]|LADEN|LOADED)\s+ON\s+BOARD(?:\s+DATE)?\s*:?\s*/gi
+  let found = ''
+  while (re.exec(t)) {
+    const d = parseDateLoose(t.slice(re.lastIndex, re.lastIndex + 30))
+    if (d) found = d
+  }
+  return found
+}
+
+// Condicion del flete escrita en el documento: "FREIGHT COLLECT", "FREIGHT PREPAID", "OCEAN FREIGHT COLLECT",
+// "FREIGH COLLECT". No cuenta las casillas impresas del formulario ("FREIGHT & CHARGES PREPAID COLLECT",
+// "FREIGHT CHARGES PREPAID PREPAID COLLECT COLLECT"). Si aparecen las dos, devuelve "PREPAID / COLLECT".
+export function findFreightTerm(text) {
+  const t = str(text).replace(/[\s,]+/g, ' ')
+  const found = new Set()
+  for (const m of t.matchAll(/\bFREIGHT?\s+(PREPAID|COLLECT)\b(?!\s+(?:PREPAID|COLLECT)\b)/gi)) found.add(m[1].toUpperCase())
+  return ['PREPAID', 'COLLECT'].filter((x) => found.has(x)).join(' / ')
+}
