@@ -112,10 +112,36 @@ function looksLikeBareBlNumber(name) {
   return false
 }
 
+// 0 emitido (Final, noncopy, released), 1 Draft_BL, 2 booking pelado u otro.
+// _draft suelto no sube a 1: si no, le ganaría al PDF que solo trae el booking.
+const ISSUED_BL = /(?:^|[\s_-])(?:NON[\s_-]?COPY|RELEASED?|ISSUED)(?:[\s_-]|$)/
+
 function blKind(stem) {
-  if (/FINAL[\s_-]*BL|FINAL[\s_-]*BILL/.test(stem)) return 0
+  if (/FINAL[\s_-]*BL|FINAL[\s_-]*BILL/.test(stem) || ISSUED_BL.test(stem)) return 0
   if (/DRAFT[\s_-]*BL|DRAFT[\s_-]*BILL/.test(stem)) return 1
   return 2
+}
+
+function revisionScore(stem) {
+  const frt = stem.match(/(?:^|[\s_-])FRT(?:[\s_-]?(\d+))?$/)
+  if (!frt) return 0
+  const n = Number(frt[1] || 1)
+  return 100 + (Number.isFinite(n) ? n : 1)
+}
+
+function readMtime(source) {
+  if (!source || typeof source !== 'object') return null
+  const raw = source.mtimeMs ?? source.mtime ?? source.lastModified
+  if (raw instanceof Date) {
+    const ms = raw.getTime()
+    return Number.isFinite(ms) ? ms : null
+  }
+  if (typeof raw === 'number' && Number.isFinite(raw)) return raw
+  if (typeof raw === 'string' && raw) {
+    const ms = Date.parse(raw)
+    return Number.isFinite(ms) ? ms : null
+  }
+  return null
 }
 
 function mblRank(file) {
@@ -126,13 +152,19 @@ function mblRank(file) {
 }
 
 function fileEntry(item) {
-  if (typeof item === 'string') return { name: item, text: '' }
-  if (!item || typeof item !== 'object') return { name: '', text: '' }
-  return { name: item.name || item.fileName || '', text: item.text || '' }
+  if (typeof item === 'string') return { name: item, text: '', mtime: null }
+  if (!item || typeof item !== 'object') return { name: '', text: '', mtime: null }
+  const nested = item.file && typeof item.file === 'object' ? item.file : null
+  return {
+    name: item.name || item.fileName || nested?.name || '',
+    text: typeof item.text === 'string' ? item.text : '',
+    mtime: readMtime(item) ?? readMtime(nested),
+  }
 }
 
 // Elige el MBL entre los PDF de la carpeta (p. ej. "5 BL NAVIERA").
-// Final, luego Draft, luego un B/L nombrado con el booking (ZIMUGYL…, COSU…, ONEY…).
+// Emitido (Final, noncopy, released), luego Draft_BL, luego el booking pelado.
+// Entre emitidos del mismo tipo, *_frt y después el mtime más nuevo si ambos lo traen.
 // Un aviso de llegada identificado no se devuelve nunca. null si no queda MBL.
 export function selectMblCandidate(files = []) {
   const list = Array.isArray(files) ? files : []
@@ -153,10 +185,16 @@ export function selectMblCandidate(files = []) {
   eligible.sort((a, b) => {
     const ra = mblRank(a)
     const rb = mblRank(b)
-    return ra[0] - rb[0]
-      || ra[1] - rb[1]
-      || fileStem(a.name).localeCompare(fileStem(b.name), 'en', { numeric: true, sensitivity: 'base' })
-      || a.index - b.index
+    if (ra[0] !== rb[0]) return ra[0] - rb[0]
+    if (ra[1] !== rb[1]) return ra[1] - rb[1]
+    if (ra[0] === 0 && ra[1] === 0) {
+      const rev = revisionScore(fileStem(b.name)) - revisionScore(fileStem(a.name))
+      if (rev) return rev
+      if (a.mtime != null && b.mtime != null && a.mtime !== b.mtime) return b.mtime - a.mtime
+    }
+    const byName = fileStem(a.name).localeCompare(fileStem(b.name), 'en', { numeric: true, sensitivity: 'base' })
+    if (byName) return byName
+    return a.index - b.index
   })
   return eligible[0].name
 }
