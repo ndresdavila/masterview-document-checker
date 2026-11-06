@@ -1,7 +1,9 @@
 import { parseProformaArrayBuffer } from './parseProforma.js'
 import { parseHblPdf, parseHblDocx, parseProformaDocx, parseMblPdf, parseSwbPdf } from './parseHblPdf.js'
 import { parseSwbArrayBuffer, excelLooksLikeSwb, finalizeSwb } from './parseSwb.js'
-import { looksLikeHblName, looksLikeMblName, looksLikeSwbName } from './carrier.js'
+import { isArrivalNoticeName, looksLikeHblName, looksLikeMblName, looksLikeSwbName } from './carrier.js'
+
+export { isArrivalNoticeName, isArrivalNoticeText, selectMblCandidate } from './carrier.js'
 
 function extOf(name = '') {
   const m = String(name).toLowerCase().match(/(\.[a-z0-9]+)$/)
@@ -22,12 +24,18 @@ export function classifyFile(file, hint = '') {
   if (looksLikeSwbName(name)) {
     if (ext === '.xls' || ext === '.xlsx' || ext === '.pdf' || ext === '.docx') return 'swb'
   }
-  if (hint === 'swb' && (ext === '.xls' || ext === '.xlsx' || ext === '.pdf' || ext === '.docx') && !looksLikeMblName(name)) {
+  if (
+    hint === 'swb'
+    && (ext === '.xls' || ext === '.xlsx' || ext === '.pdf' || ext === '.docx')
+    && !looksLikeMblName(name)
+    && !isArrivalNoticeName(name)
+  ) {
     return 'swb'
   }
   if (ext === '.xls' || ext === '.xlsx') return 'proforma'
   if (ext === '.pdf') {
-    if (looksLikeMblName(name)) return 'mbl'
+    // El aviso no compite con el B/L, pero suelto sigue siendo el PDF de la naviera.
+    if (looksLikeMblName(name) || isArrivalNoticeName(name)) return 'mbl'
     if (looksLikeHblName(name)) return 'hbl'
     if (hint === 'mbl' || hint === 'hbl') return hint
     return 'hbl'
