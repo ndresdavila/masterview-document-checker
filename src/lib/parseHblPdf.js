@@ -29,6 +29,11 @@ async function extractPdfPages(buffer) {
   return pages
 }
 
+export async function pdfPlainText(buffer) {
+  const pages = await extractPdfPages(buffer)
+  return pages.map((page) => page.text).join('\n')
+}
+
 export async function parseHblPdf(buffer, fileName) {
   const pages = await extractPdfPages(buffer)
   const extra = pages.slice(1).map((p) => p.text).join('\n')

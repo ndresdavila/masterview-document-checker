@@ -3,7 +3,8 @@ import DropPanel from './components/DropPanel.jsx'
 import ResultHero from './components/ResultHero.jsx'
 import FieldCard from './components/FieldCard.jsx'
 import { compareDocs, compareHblMbl, compareHblSwb, GROUPS } from './lib/compare.js'
-import { parseDroppedFile, classifyFile } from './lib/files.js'
+import { parseDroppedFile, classifyFile, chooseDroppedMbl } from './lib/files.js'
+import { isArrivalNoticeName } from './lib/carrier.js'
 
 const FILTERS = [
   { id: 'all', label: 'Todo' },
@@ -88,6 +89,32 @@ export default function App() {
     loadSide(side, file)
   }
 
+  const missingMbl = 'No hay MBL. Un aviso de llegada no se usa como MBL.'
+
+  function rejectMbl() {
+    setMblFile(null)
+    setMbl(null)
+    setBusy((b) => ({ ...b, mbl: false }))
+    setErrors((e) => ({ ...e, mbl: missingMbl }))
+  }
+
+  async function takeMblFiles(files, { busy = true, reject = true } = {}) {
+    const list = [...files].filter(Boolean)
+    if (!list.length) return null
+    if (busy) {
+      setErrors((e) => ({ ...e, mbl: '' }))
+      setBusy((b) => ({ ...b, mbl: true }))
+    }
+    const { file, blocked } = await chooseDroppedMbl(list)
+    if (!file) {
+      if (blocked && reject) rejectMbl()
+      else if (busy) setBusy((b) => ({ ...b, mbl: false }))
+      return null
+    }
+    onDropFile('mbl', file)
+    return file
+  }
+
   function resetAll() {
     setProformaFile(null)
     setHblFile(null)
@@ -146,13 +173,26 @@ export default function App() {
       onDragOver={(e) => e.preventDefault()}
       onDrop={(e) => {
         e.preventDefault()
-        const file = e.dataTransfer.files?.[0]
-        if (!file) return
-        const kind = classifyFile(file, dropHint(mode))
-        if (kind === 'mbl') onDropFile('mbl', file)
-        else if (kind === 'swb') onDropFile('swb', file)
-        else if (kind === 'hbl') onDropFile('hbl', file)
-        else onDropFile(kind === 'proforma' ? 'proforma' : mode === 'hbl-mbl' ? 'hbl' : mode === 'hbl-swb' ? 'hbl' : 'proforma', file)
+        const files = [...(e.dataTransfer.files || [])]
+        if (!files.length) return
+        const onMblScreen = mode === 'hbl-mbl'
+        takeMblFiles(files, { busy: onMblScreen, reject: onMblScreen }).then((mbl) => {
+          for (const file of files) {
+            if (file === mbl) continue
+            if (isArrivalNoticeName(file.name)) continue
+            const kind = classifyFile(file, dropHint(mode))
+            if (kind === 'mbl') continue
+            if (kind === 'swb') onDropFile('swb', file)
+            else if (kind === 'hbl') onDropFile('hbl', file)
+            else if (kind === 'proforma') onDropFile('proforma', file)
+            else if (kind !== 'unknown') {
+              onDropFile(
+                mode === 'hbl-mbl' || mode === 'hbl-swb' ? 'hbl' : 'proforma',
+                file,
+              )
+            }
+          }
+        })
       }}
     >
       <header className="mx-auto flex max-w-6xl flex-col gap-4 md:flex-row md:items-end md:justify-between">
@@ -243,7 +283,8 @@ export default function App() {
               doc={mbl}
               error={errors.mbl}
               busy={busy.mbl}
-              onFile={(f) => onDropFile('mbl', f)}
+              onFile={(f) => takeMblFiles([f])}
+              onFiles={(files) => takeMblFiles(files)}
             />
           ) : (
             <DropPanel

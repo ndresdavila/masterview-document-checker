@@ -14,10 +14,151 @@ export function looksLikeHblName(name = '') {
 export function looksLikeMblName(name = '') {
   const n = String(name).toUpperCase().replace(/\s+/g, ' ')
   if (looksLikeHblName(name)) return false
+  // El aviso de llegada trae el booking (ZIMUGYL…, COSU…) pero no es el B/L.
+  if (isArrivalNoticeName(name)) return false
   if (/ZIMU|ZIMUGYL|ONEYGYEG|\bCOSU\d{10}|\bCOSCO\b/.test(n)) return true
   if (/DRAFT[_\s-]*BL|FINAL[_\s-]*BL/.test(n)) return true
   if (/DRAFT_BL_\d{10}|DRAFT_BL\s+\d{10}/.test(n.replace(/ /g, '_'))) return true
   return false
+}
+
+// Aviso de llegada que convive con el B/L en la carpeta de la naviera.
+// ZIM lo exporta como AF3_<tipo>_S_<booking>-<n> (AF3_118_S_ZIMUGYL811371-1.pdf).
+// COSCO lo nombra AN_BL… / AN_COSU…. El título es "NOTICE OF ARRIVAL",
+// "ARRIVAL NOTICE" o "AVISO DE LLEGADA". Esa frase identifica al aviso
+// aunque el archivo se llame Final_BL o Draft_BL. "notice of the arrival
+// of the Goods" es una cláusula del B/L y no cuenta.
+const NOTICE_PHRASE = /NOTICE[\s_-]*OF[\s_-]*ARRIVAL|ARRIVAL[\s_-]*NOTICE|AVISO[\s_-]*DE[\s_-]*LLEGADA/
+const AMBIGUOUS_TOKEN = /(?:^|[_\s-])(?:NOTICE|ARRIVAL|AVISO|LLEGADA|NOA|AN)(?:[_\s-]|$)/
+const STRONG_BL = /FINAL[\s_-]*BL|DRAFT[\s_-]*BL|FINAL[\s_-]*BILL|DRAFT[\s_-]*BILL/
+const NAMED_BL = /BILL[\s_-]*OF[\s_-]*LADING|\bMBL\b|ORIGINAL[\s_-]*B\/?L|COPY[\s_-]*(?:NON[\s_-]*NEGOTIABLE[\s_-]*)?(?:BL|B\/L)\b/
+const BILL_TITLE = /BILL OF LADING(?!\s*(?:NO\.?|NUMBER)\b)/
+
+function fileStem(name = '') {
+  const leaf = String(name).split(/[/\\]/).pop() || ''
+  return leaf.replace(/\.[A-Za-z0-9]{1,8}$/, '').toUpperCase().replace(/\s+/g, ' ').trim()
+}
+
+function hasStrongBlToken(stem) {
+  return STRONG_BL.test(stem)
+}
+
+export function isArrivalNoticeName(name = '') {
+  const stem = fileStem(name)
+  if (!stem) return false
+  if (NOTICE_PHRASE.test(stem)) return true
+  if (hasStrongBlToken(stem)) return false
+  if (/^NOA(?:[\s_-]|$)/.test(stem)) return true
+  // COSCO: AN_BL…, AN_COSU…, o AN_<número>. "AND_BL" no entra (hace falta el separador).
+  if (/^AN[\s_-]/.test(stem) || /^AN(?:BL|B\/L|COSU|ZIMU|ONEY)\b/.test(stem)) return true
+  if (/^AF3_\d+_S_/.test(stem.replace(/[\s-]+/g, '_'))) return true
+  return false
+}
+
+function isAmbiguousNoticeName(name = '') {
+  const stem = fileStem(name)
+  if (!stem || hasStrongBlToken(stem) || isArrivalNoticeName(name)) return false
+  return AMBIGUOUS_TOKEN.test(stem)
+}
+
+export function isArrivalNoticeText(text = '') {
+  const flat = String(text).toUpperCase().replace(/\s+/g, ' ').trim()
+  if (!flat) return false
+  const title = flat.slice(0, 900)
+  // La frase del título manda: un nombre Final/Draft no la tapa, y
+  // "BILL OF LADING No." en el mismo aviso tampoco.
+  if (NOTICE_PHRASE.test(title)) return true
+  // El B/L de ZIM dice "notice of the arrival of the Goods" en las cláusulas.
+  // Eso no es el título. "BILL OF LADING No." es la casilla del número.
+  if (BILL_TITLE.test(title)) return false
+  const head = flat.slice(0, 4000)
+  return /ARRIVAL\s+NOTICE/.test(head) && /CNTR SIZE\s*\/\s*TYPE/.test(head)
+}
+
+function isIdentifiedArrivalNotice(file) {
+  if (file.text && isArrivalNoticeText(file.text)) return true
+  if (file.text && isBillOfLadingText(file.text)) return false
+  return isArrivalNoticeName(file.name)
+}
+
+function isBillOfLadingText(text = '') {
+  const title = String(text).toUpperCase().replace(/\s+/g, ' ').trim().slice(0, 900)
+  return BILL_TITLE.test(title)
+}
+
+function isPdfName(name = '') {
+  return /\.pdf$/i.test(String(name))
+}
+
+function namedCarrierBl(stem) {
+  return hasStrongBlToken(stem) || NAMED_BL.test(stem)
+}
+
+function inMblPool(name, text) {
+  if (isIdentifiedArrivalNotice({ name, text })) return false
+  if (looksLikeHblName(name)) return false
+  if (looksLikeMblName(name)) return true
+  if (namedCarrierBl(fileStem(name))) return true
+  if (text && isBillOfLadingText(text)) return true
+  return false
+}
+
+function looksLikeBareBlNumber(name) {
+  const stem = fileStem(name)
+  if (!stem || looksLikeHblName(name) || looksLikeSwbName(name)) return false
+  if (/ZIMU|ZIMUGYL|ONEY|\bCOSU\d{10}\b/.test(stem)) return true
+  if (/\bBL[\s_-]?\d{6,}\b/.test(stem)) return true
+  if (/^\d{10}$/.test(stem)) return true
+  return false
+}
+
+function blKind(stem) {
+  if (/FINAL[\s_-]*BL|FINAL[\s_-]*BILL/.test(stem)) return 0
+  if (/DRAFT[\s_-]*BL|DRAFT[\s_-]*BILL/.test(stem)) return 1
+  return 2
+}
+
+function mblRank(file) {
+  const stem = fileStem(file.name)
+  const kind = blKind(stem)
+  if (isAmbiguousNoticeName(file.name)) return [1, kind]
+  return [0, kind]
+}
+
+function fileEntry(item) {
+  if (typeof item === 'string') return { name: item, text: '' }
+  if (!item || typeof item !== 'object') return { name: '', text: '' }
+  return { name: item.name || item.fileName || '', text: item.text || '' }
+}
+
+// Elige el MBL entre los PDF de la carpeta (p. ej. "5 BL NAVIERA").
+// Final, luego Draft, luego un B/L nombrado con el booking (ZIMUGYL…, COSU…, ONEY…).
+// Un aviso de llegada identificado no se devuelve nunca. null si no queda MBL.
+export function selectMblCandidate(files = []) {
+  const list = Array.isArray(files) ? files : []
+  const pdfs = []
+  for (let index = 0; index < list.length; index += 1) {
+    const entry = fileEntry(list[index])
+    if (!entry.name || !isPdfName(entry.name)) continue
+    pdfs.push({ ...entry, index })
+  }
+  const pool = pdfs.filter((file) => inMblPool(file.name, file.text))
+  let source = pool
+  if (!source.length) {
+    const bare = pdfs.filter((file) => !isIdentifiedArrivalNotice(file) && looksLikeBareBlNumber(file.name))
+    if (bare.length === 1) source = bare
+  }
+  const eligible = source.filter((file) => !isIdentifiedArrivalNotice(file))
+  if (!eligible.length) return null
+  eligible.sort((a, b) => {
+    const ra = mblRank(a)
+    const rb = mblRank(b)
+    return ra[0] - rb[0]
+      || ra[1] - rb[1]
+      || fileStem(a.name).localeCompare(fileStem(b.name), 'en', { numeric: true, sensitivity: 'base' })
+      || a.index - b.index
+  })
+  return eligible[0].name
 }
 
 export function detectCarrier(name = '', text = '') {
