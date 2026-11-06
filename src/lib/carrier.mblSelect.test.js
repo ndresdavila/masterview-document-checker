@@ -210,6 +210,63 @@ describe('valid carrier B/Ls stay eligible', () => {
   })
 })
 
+describe('issued ONE bill over draft', () => {
+  const draft = 'ONEYGYEG04237300_draft.pdf'
+  const issued = 'ONEYGYEG04237300_noncopy_20241012.pdf'
+
+  it('prefers the noncopy issued bill over the draft for GYEG04237300', () => {
+    assert.equal(selectMblCandidate([draft, issued]), issued)
+    assert.equal(selectMblCandidate([issued, draft]), issued)
+    assert.equal(selectMblCandidate([
+      draft,
+      'AN_ONEYGYEG04237300.pdf',
+      issued,
+    ]), issued)
+    assert.equal(selectMblCandidate([
+      'ONEYGYEG04237300_draft.pdf',
+      'ONEYGYEG04237300_released.pdf',
+    ]), 'ONEYGYEG04237300_released.pdf')
+  })
+
+  it('keeps a bare booking behind Draft_BL', () => {
+    assert.equal(selectMblCandidate([
+      'ONEYGYEG04237300.pdf',
+      'Draft_BL_ONEYGYEG04237300.pdf',
+    ]), 'Draft_BL_ONEYGYEG04237300.pdf')
+  })
+})
+
+describe('equivalent finals', () => {
+  it('prefers a newer _frt revision over the alphabetically earlier final', () => {
+    assert.equal(selectMblCandidate([
+      'Final_BL_ZIMUGYL811371.pdf',
+      'Final_BL_ZIMUGYL811371_frt.pdf',
+    ]), 'Final_BL_ZIMUGYL811371_frt.pdf')
+    assert.equal(selectMblCandidate([
+      'Final_BL_ZIMUGYL811371_frt2.pdf',
+      'Final_BL_ZIMUGYL811371_frt.pdf',
+    ]), 'Final_BL_ZIMUGYL811371_frt2.pdf')
+  })
+
+  it('uses mtime when two finals have no revision suffix', () => {
+    assert.equal(selectMblCandidate([
+      { name: 'Final_BL_A.pdf', mtime: 1_700_000_000_000 },
+      { name: 'Final_BL_B.pdf', mtime: 1_800_000_000_000 },
+    ]), 'Final_BL_B.pdf')
+    assert.equal(selectMblCandidate([
+      'Final_BL_A.pdf',
+      'Final_BL_B.pdf',
+    ]), 'Final_BL_A.pdf')
+  })
+
+  it('does not let mtime promote a draft over an issued bill', () => {
+    assert.equal(selectMblCandidate([
+      { name: 'ONEYGYEG04237300_draft.pdf', mtime: 1_900_000_000_000 },
+      { name: 'ONEYGYEG04237300_noncopy_1.pdf', mtime: 1_000 },
+    ]), 'ONEYGYEG04237300_noncopy_1.pdf')
+  })
+})
+
 describe('production MBL selection', () => {
   it('calls selectMblCandidate from the drop path, not looksLikeMblName', () => {
     const app = readFileSync(new URL('../App.jsx', import.meta.url), 'utf8')
