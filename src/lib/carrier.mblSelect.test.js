@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { describe, it } from 'node:test'
 import {
   isArrivalNoticeName,
@@ -113,22 +114,40 @@ describe('ambiguous names', () => {
   })
 })
 
-describe('fallback', () => {
-  it('uses the arrival notice when it is the only MBL candidate', () => {
-    assert.equal(selectMblCandidate([NOTICE]), NOTICE)
-    assert.equal(selectMblCandidate([
-      NOTICE,
-      'factura.pdf',
-    ]), NOTICE)
-    assert.equal(selectMblCandidate(['NOTICE_ZIMUGYL811371.pdf']), 'NOTICE_ZIMUGYL811371.pdf')
-  })
-
-  it('picks one deterministic notice when every candidate is an arrival notice', () => {
+describe('identified arrival notices are never the MBL', () => {
+  it('returns no candidate when the notice is the only file', () => {
+    assert.equal(selectMblCandidate([NOTICE]), null)
+    assert.equal(selectMblCandidate([NOTICE, 'factura.pdf']), null)
+    assert.equal(selectMblCandidate(['AN_6509430830.pdf']), null)
     assert.equal(selectMblCandidate([
       'AN_BL_ZIMUGYL811371.pdf',
       NOTICE,
       'AVISO DE LLEGADA ZIMUGYL811371.pdf',
-    ]), NOTICE)
+    ]), null)
+    assert.equal(selectMblCandidate([
+      'Final_BL_ZIMUGYL811371.docx',
+      NOTICE,
+    ]), null)
+  })
+
+  it('does not let a Final or Draft filename override NOTICE OF ARRIVAL content', () => {
+    assert.equal(isArrivalNoticeText(ZIM_NOTICE), true)
+    assert.equal(selectMblCandidate([{ name: FINAL, text: ZIM_NOTICE }]), null)
+    assert.equal(selectMblCandidate([{ name: 'Draft_BL_ZIMUGYL811371.pdf', text: ZIM_NOTICE }]), null)
+    assert.equal(isArrivalNoticeName('Final_BL_NOTICE_OF_ARRIVAL_ZIMUGYL811371.pdf'), true)
+    assert.equal(selectMblCandidate(['Final_BL_NOTICE_OF_ARRIVAL_ZIMUGYL811371.pdf']), null)
+    const titled = 'NOTICE OF ARRIVAL\nSee the BILL OF LADING for ZIMUGYL811371'
+    assert.equal(isArrivalNoticeText(titled), true)
+    assert.equal(selectMblCandidate([{ name: FINAL, text: titled }]), null)
+    assert.equal(selectMblCandidate([
+      { name: 'Draft_BL_ZIMUGYL811371.pdf', text: ZIM_NOTICE },
+      { name: 'ZIMUGYL811371.pdf', text: ZIM_BILL },
+    ]), 'ZIMUGYL811371.pdf')
+  })
+
+  it('keeps an ambiguous name that is not an identified notice', () => {
+    assert.equal(isArrivalNoticeName('NOTICE_ZIMUGYL811371.pdf'), false)
+    assert.equal(selectMblCandidate(['NOTICE_ZIMUGYL811371.pdf']), 'NOTICE_ZIMUGYL811371.pdf')
   })
 
   it('falls back to a single bare BL number and refuses to guess between two', () => {
@@ -141,13 +160,6 @@ describe('fallback', () => {
     assert.equal(selectMblCandidate(['factura.pdf', 'foto.pdf']), null)
     assert.equal(selectMblCandidate(['HBL DRAFT ULGO26.pdf']), null)
     assert.equal(selectMblCandidate(['Sea Waybill.pdf']), null)
-  })
-
-  it('ignores a non-PDF and still falls back to the notice', () => {
-    assert.equal(selectMblCandidate([
-      'Final_BL_ZIMUGYL811371.docx',
-      NOTICE,
-    ]), NOTICE)
   })
 })
 
@@ -183,13 +195,32 @@ describe('valid carrier B/Ls stay eligible', () => {
       'AN_6509430830.pdf',
       'Draft_BL 6509430830.pdf',
     ]), 'Draft_BL 6509430830.pdf')
-    assert.equal(selectMblCandidate(['AN_6509430830.pdf']), 'AN_6509430830.pdf')
+    assert.equal(selectMblCandidate(['AN_6509430830.pdf']), null)
   })
 
   it('does not demote a Draft whose text is the bill, clauses included', () => {
+    assert.equal(isArrivalNoticeText(ZIM_BILL), false)
+    assert.equal(selectMblCandidate([
+      { name: 'Draft_BL_ZIMUGYL811371.pdf', text: ZIM_BILL },
+    ]), 'Draft_BL_ZIMUGYL811371.pdf')
     assert.equal(selectMblCandidate([
       { name: 'Draft_BL_ZIMUGYL811371.pdf', text: ZIM_BILL },
       { name: NOTICE, text: ZIM_NOTICE },
     ]), 'Draft_BL_ZIMUGYL811371.pdf')
+  })
+})
+
+describe('production MBL selection', () => {
+  it('calls selectMblCandidate from the drop path, not looksLikeMblName', () => {
+    const app = readFileSync(new URL('../App.jsx', import.meta.url), 'utf8')
+    const panel = readFileSync(new URL('../components/DropPanel.jsx', import.meta.url), 'utf8')
+    const files = readFileSync(new URL('./files.js', import.meta.url), 'utf8')
+    assert.match(files, /export async function chooseDroppedMbl/)
+    assert.match(files, /selectMblCandidate\(/)
+    assert.match(app, /chooseDroppedMbl\(/)
+    assert.doesNotMatch(app, /looksLikeMblName/)
+    assert.match(panel, /multiple=\{side === 'mbl'\}/)
+    assert.match(panel, /onFiles\(list\)/)
+    assert.match(app, /onFiles=\{\(files\) => takeMblFiles\(files\)\}/)
   })
 })

@@ -1,7 +1,14 @@
 import { parseProformaArrayBuffer } from './parseProforma.js'
-import { parseHblPdf, parseHblDocx, parseProformaDocx, parseMblPdf, parseSwbPdf } from './parseHblPdf.js'
+import { parseHblPdf, parseHblDocx, parseProformaDocx, parseMblPdf, parseSwbPdf, pdfPlainText } from './parseHblPdf.js'
 import { parseSwbArrayBuffer, excelLooksLikeSwb, finalizeSwb } from './parseSwb.js'
-import { isArrivalNoticeName, looksLikeHblName, looksLikeMblName, looksLikeSwbName } from './carrier.js'
+import {
+  isArrivalNoticeName,
+  isArrivalNoticeText,
+  looksLikeHblName,
+  looksLikeMblName,
+  looksLikeSwbName,
+  selectMblCandidate,
+} from './carrier.js'
 
 export { isArrivalNoticeName, isArrivalNoticeText, selectMblCandidate } from './carrier.js'
 
@@ -34,8 +41,8 @@ export function classifyFile(file, hint = '') {
   }
   if (ext === '.xls' || ext === '.xlsx') return 'proforma'
   if (ext === '.pdf') {
-    // El aviso no compite con el B/L, pero suelto sigue siendo el PDF de la naviera.
-    if (looksLikeMblName(name) || isArrivalNoticeName(name)) return 'mbl'
+    if (isArrivalNoticeName(name)) return 'unknown'
+    if (looksLikeMblName(name)) return 'mbl'
     if (looksLikeHblName(name)) return 'hbl'
     if (hint === 'mbl' || hint === 'hbl') return hint
     return 'hbl'
@@ -52,6 +59,41 @@ export function classifyFile(file, hint = '') {
 }
 
 const PANEL_ROLES = new Set(['proforma', 'hbl', 'mbl', 'swb'])
+
+async function textOfDroppedPdf(file) {
+  if (typeof file?.text === 'string' && file.text) return file.text
+  if (!/\.pdf$/i.test(file?.name || '') || typeof file?.arrayBuffer !== 'function') return ''
+  try {
+    return await pdfPlainText(await file.arrayBuffer())
+  } catch {
+    return ''
+  }
+}
+
+// Punto de entrada al soltar archivos: lee el PDF y elige con selectMblCandidate.
+// Final queda delante de Draft. Un aviso identificado no se devuelve.
+export async function chooseDroppedMbl(files) {
+  const list = Array.from(files || []).filter((file) => file && file.name)
+  const described = []
+  for (const file of list) {
+    described.push({
+      name: file.name,
+      text: await textOfDroppedPdf(file),
+      file,
+    })
+  }
+  const chosen = selectMblCandidate(described)
+  if (!chosen) {
+    return {
+      file: null,
+      blocked: described.some((item) => isArrivalNoticeName(item.name) || isArrivalNoticeText(item.text)),
+    }
+  }
+  return {
+    file: described.find((item) => item.name === chosen)?.file || null,
+    blocked: false,
+  }
+}
 
 export async function parseDroppedFile(file, expected) {
   const named = classifyFile(file, expected)

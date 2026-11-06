@@ -8,6 +8,7 @@ export default function DropPanel({
   error,
   busy,
   onFile,
+  onFiles,
 }) {
   const chips = []
   if (doc?.kind === 'proforma') {
@@ -31,11 +32,20 @@ export default function DropPanel({
     if (doc.containers?.length) chips.push(`${doc.containers.length} contenedores`)
   }
 
+  function emitFiles(files) {
+    const list = [...files].filter(Boolean)
+    if (!list.length) return
+    if (side === 'mbl' && onFiles) {
+      onFiles(list)
+      return
+    }
+    onFile(list[0])
+  }
+
   function takeDroppedFile(e) {
     e.preventDefault()
     e.stopPropagation()
-    const next = e.dataTransfer?.files?.[0]
-    if (next) onFile(next)
+    emitFiles(e.dataTransfer?.files || [])
   }
 
   return (
@@ -62,10 +72,10 @@ export default function DropPanel({
         <input
           type="file"
           accept={accept}
+          multiple={side === 'mbl'}
           className="sr-only"
           onChange={(e) => {
-            const next = e.target.files?.[0]
-            if (next) onFile(next)
+            emitFiles(e.target.files || [])
             e.target.value = ''
           }}
         />

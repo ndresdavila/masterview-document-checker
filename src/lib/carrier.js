@@ -15,7 +15,6 @@ export function looksLikeMblName(name = '') {
   const n = String(name).toUpperCase().replace(/\s+/g, ' ')
   if (looksLikeHblName(name)) return false
   // El aviso de llegada trae el booking (ZIMUGYL…, COSU…) pero no es el B/L.
-  // Sigue pudiendo usarse: selectMblCandidate lo deja como último recurso.
   if (isArrivalNoticeName(name)) return false
   if (/ZIMU|ZIMUGYL|ONEYGYEG|\bCOSU\d{10}|\bCOSCO\b/.test(n)) return true
   if (/DRAFT[_\s-]*BL|FINAL[_\s-]*BL/.test(n)) return true
@@ -26,8 +25,9 @@ export function looksLikeMblName(name = '') {
 // Aviso de llegada que convive con el B/L en la carpeta de la naviera.
 // ZIM lo exporta como AF3_<tipo>_S_<booking>-<n> (AF3_118_S_ZIMUGYL811371-1.pdf).
 // COSCO lo nombra AN_BL… / AN_COSU…. El título es "NOTICE OF ARRIVAL",
-// "ARRIVAL NOTICE" o "AVISO DE LLEGADA". Un Final/Draft sigue siendo el B/L
-// aunque el nombre también diga "notice".
+// "ARRIVAL NOTICE" o "AVISO DE LLEGADA". Esa frase identifica al aviso
+// aunque el archivo se llame Final_BL o Draft_BL. "notice of the arrival
+// of the Goods" es una cláusula del B/L y no cuenta.
 const NOTICE_PHRASE = /NOTICE[\s_-]*OF[\s_-]*ARRIVAL|ARRIVAL[\s_-]*NOTICE|AVISO[\s_-]*DE[\s_-]*LLEGADA/
 const AMBIGUOUS_TOKEN = /(?:^|[_\s-])(?:NOTICE|ARRIVAL|AVISO|LLEGADA|NOA|AN)(?:[_\s-]|$)/
 const STRONG_BL = /FINAL[\s_-]*BL|DRAFT[\s_-]*BL|FINAL[\s_-]*BILL|DRAFT[\s_-]*BILL/
@@ -45,8 +45,9 @@ function hasStrongBlToken(stem) {
 
 export function isArrivalNoticeName(name = '') {
   const stem = fileStem(name)
-  if (!stem || hasStrongBlToken(stem)) return false
+  if (!stem) return false
   if (NOTICE_PHRASE.test(stem)) return true
+  if (hasStrongBlToken(stem)) return false
   if (/^NOA(?:[\s_-]|$)/.test(stem)) return true
   // COSCO: AN_BL…, AN_COSU…, o AN_<número>. "AND_BL" no entra (hace falta el separador).
   if (/^AN[\s_-]/.test(stem) || /^AN(?:BL|B\/L|COSU|ZIMU|ONEY)\b/.test(stem)) return true
@@ -64,12 +65,20 @@ export function isArrivalNoticeText(text = '') {
   const flat = String(text).toUpperCase().replace(/\s+/g, ' ').trim()
   if (!flat) return false
   const title = flat.slice(0, 900)
-  // El B/L de ZIM dice "notice of the arrival of the Goods" en las cláusulas.
-  // Eso no es el título. "BILL OF LADING No." es la casilla del número, no el título.
-  if (BILL_TITLE.test(title)) return false
+  // La frase del título manda: un nombre Final/Draft no la tapa, y
+  // "BILL OF LADING No." en el mismo aviso tampoco.
   if (NOTICE_PHRASE.test(title)) return true
+  // El B/L de ZIM dice "notice of the arrival of the Goods" en las cláusulas.
+  // Eso no es el título. "BILL OF LADING No." es la casilla del número.
+  if (BILL_TITLE.test(title)) return false
   const head = flat.slice(0, 4000)
   return /ARRIVAL\s+NOTICE/.test(head) && /CNTR SIZE\s*\/\s*TYPE/.test(head)
+}
+
+function isIdentifiedArrivalNotice(file) {
+  if (file.text && isArrivalNoticeText(file.text)) return true
+  if (file.text && isBillOfLadingText(file.text)) return false
+  return isArrivalNoticeName(file.name)
 }
 
 function isBillOfLadingText(text = '') {
@@ -86,11 +95,11 @@ function namedCarrierBl(stem) {
 }
 
 function inMblPool(name, text) {
+  if (isIdentifiedArrivalNotice({ name, text })) return false
   if (looksLikeHblName(name)) return false
   if (looksLikeMblName(name)) return true
-  if (isArrivalNoticeName(name)) return true
   if (namedCarrierBl(fileStem(name))) return true
-  if (text && (isArrivalNoticeText(text) || isBillOfLadingText(text))) return true
+  if (text && isBillOfLadingText(text)) return true
   return false
 }
 
@@ -112,13 +121,6 @@ function blKind(stem) {
 function mblRank(file) {
   const stem = fileStem(file.name)
   const kind = blKind(stem)
-  const billText = file.text ? isBillOfLadingText(file.text) : false
-  const noticeText = file.text ? isArrivalNoticeText(file.text) : false
-  if (noticeText && !billText) return [2, kind]
-  if (billText && !noticeText) {
-    return [(isArrivalNoticeName(file.name) || isAmbiguousNoticeName(file.name)) ? 1 : 0, kind]
-  }
-  if (isArrivalNoticeName(file.name)) return [2, kind]
   if (isAmbiguousNoticeName(file.name)) return [1, kind]
   return [0, kind]
 }
@@ -131,7 +133,7 @@ function fileEntry(item) {
 
 // Elige el MBL entre los PDF de la carpeta (p. ej. "5 BL NAVIERA").
 // Final, luego Draft, luego un B/L nombrado con el booking (ZIMUGYL…, COSU…, ONEY…).
-// El aviso de llegada solo gana si no quedó otro candidato. null si no hay ninguno.
+// Un aviso de llegada identificado no se devuelve nunca. null si no queda MBL.
 export function selectMblCandidate(files = []) {
   const list = Array.isArray(files) ? files : []
   const pdfs = []
@@ -143,11 +145,12 @@ export function selectMblCandidate(files = []) {
   const pool = pdfs.filter((file) => inMblPool(file.name, file.text))
   let source = pool
   if (!source.length) {
-    const bare = pdfs.filter((file) => looksLikeBareBlNumber(file.name))
+    const bare = pdfs.filter((file) => !isIdentifiedArrivalNotice(file) && looksLikeBareBlNumber(file.name))
     if (bare.length === 1) source = bare
   }
-  if (!source.length) return null
-  source.sort((a, b) => {
+  const eligible = source.filter((file) => !isIdentifiedArrivalNotice(file))
+  if (!eligible.length) return null
+  eligible.sort((a, b) => {
     const ra = mblRank(a)
     const rb = mblRank(b)
     return ra[0] - rb[0]
@@ -155,7 +158,7 @@ export function selectMblCandidate(files = []) {
       || fileStem(a.name).localeCompare(fileStem(b.name), 'en', { numeric: true, sensitivity: 'base' })
       || a.index - b.index
   })
-  return source[0].name
+  return eligible[0].name
 }
 
 export function detectCarrier(name = '', text = '') {
