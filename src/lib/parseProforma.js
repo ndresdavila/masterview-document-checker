@@ -184,7 +184,7 @@ function parseContainers(grid, startRow, endRow) {
       continue
     }
 
-    if (/total bags|total cajas|total net|peso neto total|total gross|^2nd notify|^hs code/i.test(joined)) {
+    if (/total bags|total pkgs|total cajas|total net|peso neto total|total gross|^2nd notify|^hs code/i.test(joined)) {
       break
     }
 
@@ -291,7 +291,7 @@ function parseLooseIsoContainers(grid, startRow, endRow) {
   for (let r = startRow; r < endRow; r += 1) {
     const row = grid[r] || []
     const c0 = str(row[0])
-    if (/^marks$/i.test(c0) || /total bags/i.test(c0)) break
+    if (/^marks$/i.test(c0) || /total bags|total pkgs/i.test(c0)) break
     const iso = extractIsoId(c0) || extractIsoId(row.map(str).join(' '))
     if (!iso) continue
     const descCell = str(row[5] || row[4])
@@ -302,7 +302,7 @@ function parseLooseIsoContainers(grid, startRow, endRow) {
       const s = str(grid[k]?.[0])
       if (!s) continue
       if (ISO_RE.test(s.toUpperCase())) break
-      if (/^marks$/i.test(s) || /total bags/i.test(s)) break
+      if (/^marks$/i.test(s) || /total bags|total pkgs/i.test(s)) break
       if (isSealToken(s)) seals.push(...sealTokens(joinSpacedSeal(s)))
     }
     const rowGross = parseNumber(row[8])
@@ -377,7 +377,7 @@ export function parseProformaArrayBuffer(buffer, fileName = '') {
   const polLbl = findLabel(grid, /port of loading/i)
   const podLbl = findLabel(grid, /port of discharge/i)
   const marksLbl = findLabel(grid, /marks and/i)
-  const totalBagsLbl = findLabel(grid, /total bags/i)
+  const totalBagsLbl = findLabel(grid, /total bags|total pkgs/i)
   const secondLbl = findLabel(grid, /2nd notify/i)
 
   const shipperStop = consigneeLbl?.r ?? unlessLbl?.r ?? notifyLbl?.r

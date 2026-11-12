@@ -64,7 +64,7 @@ function cleanMarks(text) {
     // "GLOBAL-COCOA S.A. TOTAL BAGS: 725 LOTE# 047" sigue aportando la marca.
     .map((l) => l
       .replace(/\d+(?:[.,]\d+)*\s*K\.?\s*[NB]\b\.?/gi, ' ')
-      .replace(/\bTOTAL\s+BAGS:?\s*[\d.,]*/gi, ' ')
+      .replace(/\bTOTAL\s+(?:BAGS|PKGS):?\s*[\d.,]*/gi, ' ')
       // Unidad sola ("K.N", "KB") cuando el numero quedo en otra linea.
       .replace(/(?<![\w.])K\.?\s*[NB](?![\w])\.?/gi, ' ')
       // Peso suelto con decimales ("25,228.50", "69,00" cuyo KN quedo en otra linea): no es una marca.
