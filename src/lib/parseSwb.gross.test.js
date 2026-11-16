@@ -232,6 +232,39 @@ describe('SWB gross weight box and description', () => {
     assert.equal(gross[0].status, 'mismatch')
   })
 
+  it('reads GROSS WEIGHT without a colon (ULGO26US00296)', () => {
+    const words = pdfWords([
+      { y: 480, x: 160, tokens: ['GROSS', 'WEIGHT', '50,457.00', 'KGS'] },
+      { y: 500, x: 160, tokens: ['NET', 'WEIGHT', '50,025.00', 'KGS'] },
+    ])
+    const swb = parseSwbFromPdfPages([{ words, text: words.map((w) => w.str).join(' ') }], 'ULGO26US00296.pdf')
+    assert.equal(swb.totals.grossKgDescription, 50457)
+    assert.equal(swb.totals.grossKg, 50457)
+    assert.equal(swb.totals.grossKgBox, null)
+    const result = compareHblSwb(hblWithGross(50457), swb)
+    const gross = grossItems(result)
+    assert.equal(gross.length, 1)
+    assert.equal(gross[0].status, 'match')
+    assert.equal(gross[0].label, 'Peso bruto (SWB descripción)')
+  })
+
+  it('reads a PDF Gross Weight column total beside CBM (ULGO26US00309)', () => {
+    const words = pdfWords([
+      { y: 320, x: 430, tokens: ['Gross', 'Weight'] },
+      { y: 360, x: 430, tokens: ['25,213.50', 'KG'] },
+      { y: 640, x: 430, tokens: ['252,285.00', 'KG', '600.00', 'CBM'] },
+    ])
+    const swb = parseSwbFromPdfPages([{ words, text: words.map((w) => w.str).join(' ') }], 'ULGO26US00309.pdf')
+    assert.equal(swb.totals.grossKgBox, 252285)
+    assert.equal(swb.totals.grossKg, 252285)
+    assert.equal(swb.totals.grossKgDescription, null)
+    const result = compareHblSwb(hblWithGross(252285), swb)
+    const gross = grossItems(result)
+    assert.equal(gross.length, 1)
+    assert.equal(gross[0].status, 'match')
+    assert.equal(gross[0].label, 'Peso bruto (SWB casilla)')
+  })
+
   it('reads only the PDF Gross Weight column when the description is absent', () => {
     const words = pdfWords([
       { y: 320, x: 430, tokens: ['Gross', 'Weight'] },
