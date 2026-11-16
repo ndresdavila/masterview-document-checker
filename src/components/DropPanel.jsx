@@ -1,3 +1,14 @@
+import { formatNumber } from '../lib/normalize.js'
+
+function SwbWeight({ label, value }) {
+  return (
+    <div className="border border-paper-2 bg-white px-2 py-1 text-left">
+      <p className="text-[10px] font-semibold uppercase text-muted">{label}</p>
+      <p className="mt-0.5 text-sm text-ink">{value != null ? `${formatNumber(value)} kg` : '—'}</p>
+    </div>
+  )
+}
+
 export default function DropPanel({
   side,
   title,
@@ -92,6 +103,12 @@ export default function DropPanel({
                     {c}
                   </span>
                 ))}
+              </div>
+            ) : null}
+            {doc?.kind === 'swb' ? (
+              <div className="mt-3 grid w-full max-w-sm grid-cols-2 gap-2">
+                <SwbWeight label="Peso bruto casilla" value={doc.totals?.grossKgBox} />
+                <SwbWeight label="Peso bruto descripción" value={doc.totals?.grossKgDescription} />
               </div>
             ) : null}
             <p className="mt-4 text-xs text-muted">Seleccione otro archivo para reemplazar</p>
