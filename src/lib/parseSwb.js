@@ -93,6 +93,86 @@ function isSealToken(value) {
   return tokens.length > 0 && !ISO_RE.test(str(value).toUpperCase())
 }
 
+// La casilla Gross Weight del SWB (Excel G25/G26, o la columna del PDF) es el total
+// del embarque. "GROSS WEIGHT: 152,280.00 KGS" en la descripcion es otra cifra: si
+// discrepan, vale la casilla. Sin casilla legible se sigue usando la descripcion.
+function grossKgInCell(value) {
+  if (typeof value === 'number' && Number.isFinite(value) && value >= 100) return value
+  const s = str(value)
+  if (!s || !/\d/.test(s)) return null
+  if (/gross\s+weight\s*:/i.test(s)) return null
+  if (/cbm/i.test(s) && !/\bkg/i.test(s)) return null
+  const kg = s.match(/([\d,]+\.?\d*)\s*KGS?\b/i)
+  const n = parseNumber(kg ? kg[1] : s)
+  if (n == null || n < 100) return null
+  return n
+}
+
+function grossKgFromSwbGrid(grid) {
+  const lbl = findLabel(grid, /^gross\s*weight$/i)
+  if (!lbl) return null
+  const spots = [
+    [lbl.r + 1, lbl.c],
+    [lbl.r, lbl.c],
+    [lbl.r + 1, lbl.c + 1],
+    [lbl.r, lbl.c + 1],
+  ]
+  for (const [r, c] of spots) {
+    const n = grossKgInCell(grid[r]?.[c])
+    if (n != null) return n
+  }
+  return null
+}
+
+function grossKgFromSwbPdfWords(pages) {
+  const words = []
+  for (const page of pages || []) {
+    for (const w of page.words || []) {
+      if (str(w.str)) words.push(w)
+    }
+  }
+  const headers = []
+  for (const g of words) {
+    if (!/^gross$/i.test(str(g.str))) continue
+    const weight = words.find((w) => (
+      /^weights?:?$/i.test(str(w.str))
+      && Math.abs(w.y - g.y) <= 3
+      && w.x > g.x
+      && w.x < g.x + 90
+    ))
+    if (!weight || /:$/.test(str(weight.str))) continue
+    const colon = words.some((w) => (
+      str(w.str) === ':'
+      && Math.abs(w.y - weight.y) <= 3
+      && w.x >= weight.x
+      && w.x < weight.x + 16
+    ))
+    if (colon) continue
+    headers.push(g)
+  }
+  const values = []
+  for (const h of headers) {
+    const ys = new Set()
+    for (const w of words) {
+      if (w.y <= h.y + 4 || w.y > h.y + 36) continue
+      if (w.x < h.x - 12 || w.x > h.x + 140) continue
+      ys.add(Math.round(w.y))
+    }
+    for (const y of ys) {
+      const line = words
+        .filter((w) => Math.abs(Math.round(w.y) - y) <= 2 && w.x >= h.x - 12 && w.x < h.x + 140)
+        .sort((a, b) => a.x - b.x)
+        .map((w) => str(w.str))
+        .join(' ')
+      if (/gross\s+weight\s*:/i.test(line)) continue
+      const n = grossKgInCell(line)
+      if (n != null) values.push(n)
+    }
+  }
+  if (!values.length) return null
+  return Math.max(...values)
+}
+
 function lastNwGw(text) {
   const raw = str(text)
   const nets = [...raw.matchAll(/([\d.,]+)\s*(?:N\.?\s*W|K\.?\s*N|KG\s*NET)\b/gi)]
@@ -373,9 +453,14 @@ export function parseSwbFromGrid(grid, fileName = '') {
     ? { text: gridMarks.join('\n'), lote: fromText.marks?.lote || '', lines: gridMarks }
     : fromText.marks
 
+  const boxGross = grossKgFromSwbGrid(grid)
   return finalizeSwb(
     {
       ...fromText,
+      totals: {
+        ...fromText.totals,
+        ...(boxGross != null ? { grossKg: boxGross } : {}),
+      },
       marks,
       shipper: shipper.name ? shipper : fromText.shipper,
       consignee: consignee.name ? consignee : fromText.consignee,
@@ -479,8 +564,13 @@ export function parseSwbFromPdfPages(pages, fileName = '') {
     const at = cut.findIndex((l) => FOOTER.test(str(l)))
     doc.marks = { ...doc.marks, lines, text: at >= 0 ? cut.slice(0, at).join('\n') : doc.marks.text }
   }
+  const boxGross = grossKgFromSwbPdfWords(pages)
   return finalizeSwb({
     ...doc,
+    totals: {
+      ...doc.totals,
+      ...(boxGross != null ? { grossKg: boxGross } : {}),
+    },
     extras: { ...doc.extras, _raw: grouped },
   }, fileName)
 }
