@@ -1064,6 +1064,72 @@ export function compareHblMbl(hbl, mblParsed) {
   }
 }
 
+function withCaptions(item, captions) {
+  if (captions && (captions.left || captions.right)) item.captions = captions
+  return item
+}
+
+// Peso bruto del SWB: la casilla y la descripcion son campos distintos.
+// Si las dos cifras son la misma, una sola fila entra en el puntaje (no se penaliza dos veces
+// la misma diferencia). Si difieren, cada fuente que no coincida con el otro documento suma la suya,
+// y la discrepancia interna es otro campo.
+function swbGrossComparisons(otherKg, swb) {
+  const box = swb?.totals?.grossKgBox ?? null
+  const line = swb?.totals?.grossKgDescription ?? null
+  const items = []
+
+  if (box != null && line != null && !numbersClose(box, line)) {
+    const intra = compareText({
+      id: 'swb-gross-sources',
+      group: 'Totales y referencias',
+      label: 'SWB peso bruto: casilla vs descripción',
+      a: box,
+      b: line,
+      mode: 'number',
+    })
+    intra.detail = `Casilla ${intra.proforma} vs descripción ${intra.hbl}`
+    items.push(withCaptions(intra, { left: 'Casilla', right: 'Descripción' }))
+  }
+
+  const available = []
+  if (box != null) available.push({ id: 'swb-gross-box', source: 'casilla', value: box })
+  if (line != null) available.push({ id: 'swb-gross-line', source: 'descripción', value: line })
+
+  const sameFigure = available.length === 2 && numbersClose(available[0].value, available[1].value)
+  const rows = sameFigure
+    ? [{ id: 'gross', source: 'casilla y descripción', value: box, combined: true }]
+    : available
+
+  if (!rows.length) {
+    rows.push({ id: 'gross', source: '', value: null, combined: false })
+  }
+
+  for (const row of rows) {
+    const item = compareText({
+      id: row.id,
+      group: 'Totales y referencias',
+      label: row.source ? `Peso bruto (SWB ${row.source})` : 'Peso bruto',
+      a: otherKg,
+      b: row.value,
+      mode: 'number',
+    })
+    if (item.status === 'mismatch' && row.source && item.proforma !== '—' && item.hbl !== '—') {
+      item.detail = `HBL ${item.proforma} vs SWB ${row.source} ${item.hbl}`
+    } else if (item.detail === 'Falta en el HBL') {
+      item.detail = 'Falta en el SWB'
+    } else if (item.detail === 'Solo aparece en el HBL') {
+      item.detail = 'Solo aparece en el SWB'
+    }
+    if (row.combined) {
+      item.hbl = `Casilla: ${formatNumber(box)}\nDescripción: ${formatNumber(line)}`
+    }
+    const captions = row.source ? { right: `SWB ${row.source}` } : null
+    items.push(withCaptions(item, captions))
+  }
+
+  return items
+}
+
 export function compareHblSwb(hbl, swb) {
   const wordingRight = 'SWB'
   const items = []
@@ -1207,14 +1273,7 @@ export function compareHblSwb(hbl, swb) {
       b: swb.totals?.netKg,
       mode: 'number',
     }),
-    compareText({
-      id: 'gross',
-      group: 'Totales y referencias',
-      label: 'Peso bruto',
-      a: hbl.totals?.grossKg,
-      b: swb.totals?.grossKg,
-      mode: 'number',
-    }),
+    ...swbGrossComparisons(hbl.totals?.grossKg, swb),
     compareText({
       id: 'cbm',
       group: 'Totales y referencias',

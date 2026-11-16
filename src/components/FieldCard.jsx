@@ -7,8 +7,8 @@ const STATUS = {
 }
 
 export default function FieldCard({ item, captions }) {
-  const leftCaption = captions?.left || 'Proforma'
-  const rightCaption = captions?.right || 'HBL'
+  const leftCaption = item.captions?.left || captions?.left || 'Proforma'
+  const rightCaption = item.captions?.right || captions?.right || 'HBL'
   const extraLabel = captions?.extra || 'Solo HBL'
   const meta = item.status === 'extra'
     ? { label: extraLabel, className: 'bg-paper-2 text-muted' }

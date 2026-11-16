@@ -93,9 +93,8 @@ function isSealToken(value) {
   return tokens.length > 0 && !ISO_RE.test(str(value).toUpperCase())
 }
 
-// La casilla Gross Weight del SWB (Excel G25/G26, o la columna del PDF) es el total
-// del embarque. "GROSS WEIGHT: 152,280.00 KGS" en la descripcion es otra cifra: si
-// discrepan, vale la casilla. Sin casilla legible se sigue usando la descripcion.
+// La casilla Gross Weight (Excel G25/G26, o la columna del PDF) y la linea
+// "GROSS WEIGHT:" de la descripcion se leen por separado. La que no aparezca queda null.
 function grossKgInCell(value) {
   if (typeof value === 'number' && Number.isFinite(value) && value >= 100) return value
   const s = str(value)
@@ -171,6 +170,48 @@ function grossKgFromSwbPdfWords(pages) {
   }
   if (!values.length) return null
   return Math.max(...values)
+}
+
+// Total de la descripcion: "GROSS WEIGHT:" / "TOTAL GROSS WEIGHT", no la casilla.
+// Una cifra por contenedor (bajo 40.000 kg, como el resto del checker) no es el total
+// del embarque cuando hay varias; el total es la ultima cifra grande, o TOTAL GROSS WEIGHT.
+function grossKgFromDescriptionText(text) {
+  const t = str(text)
+  const hits = []
+  const re = /GROSS\s+WEIGHT\s*(?:\(\s*KGS?\.?\s*\))?\s*:\s*([\d,]+\.?\d*)/gi
+  for (const m of t.matchAll(re)) {
+    const n = parseNumber(m[1])
+    if (n == null || n < 100) continue
+    const before = t.slice(Math.max(0, m.index - 16), m.index)
+    hits.push({ n, total: /TOTAL\s+$/i.test(before) })
+  }
+  const totals = hits.filter((h) => h.total)
+  if (totals.length) return totals[totals.length - 1].n
+  const large = hits.filter((h) => h.n > 40000)
+  if (large.length) return large[large.length - 1].n
+  return null
+}
+
+function swbGrossTotals(totals, boxGross, descGross) {
+  const grossKgBox = boxGross ?? null
+  const grossKgDescription = descGross ?? null
+  return {
+    ...(totals || {}),
+    grossKgBox,
+    grossKgDescription,
+    grossKg: grossKgBox ?? grossKgDescription ?? null,
+  }
+}
+
+// Excel y PDF dejan las dos cifras (o null). Un SWB Word no tiene casilla: el peso
+// que ya traia el texto queda como descripcion, y la casilla queda null.
+function swbGrossFromDoc(totals = {}) {
+  const has = (key) => Object.prototype.hasOwnProperty.call(totals, key)
+  return swbGrossTotals(
+    totals,
+    has('grossKgBox') ? totals.grossKgBox : null,
+    has('grossKgDescription') ? totals.grossKgDescription : totals.grossKg,
+  )
 }
 
 function lastNwGw(text) {
@@ -330,9 +371,11 @@ export function finalizeSwb(doc, fileName = '') {
 
   const restExtras = { ...(doc.extras || {}) }
   delete restExtras._raw
+  const totals = swbGrossFromDoc(doc.totals || {})
   return {
     ...doc,
     kind: 'swb',
+    totals,
     fileName: fileName || doc.fileName,
     shipper,
     consignee,
@@ -454,13 +497,11 @@ export function parseSwbFromGrid(grid, fileName = '') {
     : fromText.marks
 
   const boxGross = grossKgFromSwbGrid(grid)
+  const descGross = grossKgFromDescriptionText(blob)
   return finalizeSwb(
     {
       ...fromText,
-      totals: {
-        ...fromText.totals,
-        ...(boxGross != null ? { grossKg: boxGross } : {}),
-      },
+      totals: swbGrossTotals(fromText.totals, boxGross, descGross),
       marks,
       shipper: shipper.name ? shipper : fromText.shipper,
       consignee: consignee.name ? consignee : fromText.consignee,
@@ -565,12 +606,10 @@ export function parseSwbFromPdfPages(pages, fileName = '') {
     doc.marks = { ...doc.marks, lines, text: at >= 0 ? cut.slice(0, at).join('\n') : doc.marks.text }
   }
   const boxGross = grossKgFromSwbPdfWords(pages)
+  const descGross = grossKgFromDescriptionText(grouped)
   return finalizeSwb({
     ...doc,
-    totals: {
-      ...doc.totals,
-      ...(boxGross != null ? { grossKg: boxGross } : {}),
-    },
+    totals: swbGrossTotals(doc.totals, boxGross, descGross),
     extras: { ...doc.extras, _raw: grouped },
   }, fileName)
 }
