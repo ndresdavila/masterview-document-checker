@@ -696,6 +696,30 @@ function parseOne(text, fileName, words) {
   }, t)
 }
 
+// Total del embarque: "NET WEIGHT: 151,200.00 KGS", con o sin dos puntos, KG/KGS y
+// separador de miles. Por encima de 40 t no cabe en un contenedor, así que
+// "NET WEIGHT: 25,200.00 KG" sigue siendo el neto de ese contenedor.
+function shipmentNetWeightKg(text) {
+  const t = str(text)
+  const re = /\bNET[ \t]+WEIGHT(?:[ \t]*\([ \t]*KGS?\.?[ \t]*\))?[ \t]*:?[ \t]*(\d{1,3}(?:[.,]\d{3})+(?:[.,]\d{1,2})?|\d+(?:[.,]\d{1,2})?)(?:[ \t]*(KGS?|KILOS?|MTS?|MT)\b)?/gi
+  let last = null
+  for (const m of t.matchAll(re)) {
+    let n = parseNumber(m[1])
+    if (n == null) continue
+    const unit = str(m[2]).toUpperCase()
+    if (/^MT$|^MTS$/.test(unit) && n < 500) n *= 1000
+    if (n > 40000) last = n
+  }
+  return last
+}
+
+function sumContainerNetKg(containers) {
+  const list = containers || []
+  if (!list.length || list.some((c) => c.netKg == null || c.netKg <= 0 || c.netKg > 40000)) return null
+  const sum = list.reduce((s, c) => s + c.netKg, 0)
+  return sum >= 1000 ? sum : null
+}
+
 function finish(doc, text) {
   const ruc = str(text).match(/RUC:?\s*([0-9]{10,13})/i)?.[1] || ''
   if (ruc && doc.shipper) doc.shipper.ruc = ruc
@@ -705,6 +729,12 @@ function finish(doc, text) {
   })
   if (doc.totals.netKg != null && doc.totals.netKg < 1000) doc.totals.netKg = null
   if (doc.totals.grossKg != null && doc.totals.grossKg < 1000) doc.totals.grossKg = null
+  // Solo se completa un neto vacío. TOTAL NET WEIGHT, N.W., NW y PESO NETO quedan como estaban.
+  if (doc.totals.netKg == null) {
+    const fromLine = shipmentNetWeightKg(text)
+    const netKg = fromLine ?? sumContainerNetKg(doc.containers)
+    if (netKg != null && netKg >= 1000) doc.totals.netKg = netKg
+  }
   doc.kind = 'mbl'
   doc.extras = {
     ruc,
