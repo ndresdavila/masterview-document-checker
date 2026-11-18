@@ -1,6 +1,10 @@
+## Muestra
+
+https://github.com/user-attachments/assets/64682edb-9eec-4a4d-b142-1fe73a61018d
+
 # Revisor de documentos
 
-Revisor hecho para los documentos de **Masterview S.A.**, un freight forwarder. El formato cambia según lo que envía cada cliente, y el revisor se actualiza para seguir ese cambio.
+Revisor hecho para los documentos de **Masterview S.A.**, un agente de carga. El formato cambia según lo que envía cada cliente, y el revisor se actualiza para seguir ese cambio.
 
 App publicada: https://ndresdavila.github.io/masterview-document-checker/
 
