@@ -4,6 +4,7 @@ import {
   extractBooking,
   extractIsoId,
   sealTokens,
+  collectListedSeals,
   findVoyage,
   splitVesselVoyagePort,
   ISO_RE,
@@ -188,8 +189,12 @@ function parseZimContainers(text) {
     const bagsAfter = [...after.matchAll(/(\d{2,4})\s+BAGS\b/g)]
       .map((x) => parseNumber(x[1]))
       .filter((n) => n != null && n >= 50 && n < 500)
-    const seals = [...after.matchAll(/SEAL:\s*([A-Z0-9]+)/gi)].map((x) => x[1])
-    const extra = sealTokens(after.split(/BAGS OF|MARCAS|SHIPPER'S LOAD|CONT TARE|\bLOTE\b|\bDAE\b/)[0])
+    // Cada SEAL: del contenedor, los que siguen en la línea de abajo y los W/B/R.
+    // El corte es SHIPPER'S LOAD: lo de después son marcas, no sellos.
+    const seals = [...new Set([
+      ...collectListedSeals(after.split(/SHIPPER'S LOAD|CONT TARE/)[0]),
+      ...[...after.matchAll(/\bSEALS?\s*[:.#]\s*([A-Z0-9]+)/gi)].flatMap((m) => sealTokens(m[1])),
+    ])]
     const netKg = labeledNet ?? weights.netKg
     // Columna WEIGHT de la lista anexa: la cifra justo antes de "SHIPPER'S LOAD STOWAGE & COUNT".
     // Sirve cuando el KB de la descripción viene partido ("25, 228.50 KB").
@@ -197,7 +202,7 @@ function parseZimContainers(text) {
     const grossKg = labeledGross ?? weights.grossKg ?? (columnGross != null && columnGross >= 1000 && columnGross < 40000 ? columnGross : null)
     containers.push({
       id,
-      seal: [...new Set([...seals, ...extra])].join(', '),
+      seal: seals.join(', '),
       pkgs: bagHits[bagHits.length - 1] ?? (labeledNet ? bagsAfter[0] : null),
       description: descFrom(gap) || descFrom(after),
       netKg,
@@ -282,7 +287,7 @@ function parseCoscoContainers(text) {
   }
   const seen = new Set()
   const containers = []
-  const summary = /([A-Z]{4}\d{7})\s*\/\s*([A-Z0-9]+)\s*\/\s*(\d+)\s+(BAGS|BOXES|CARTONS|PACKAGES)\s*\/[^\n]*?\/[A-Z0-9]+\/([\d.]+)KGS(?:;([\d.]+)CBM)?/gi
+  const summary = /([A-Z]{4}\d{7})\s*\/\s*([A-Z0-9]+(?:\s+[A-Z0-9]+)*)\s*\/\s*(\d+)\s+(BAGS|BOXES|CARTONS|PACKAGES)\s*\/[^\n]*?\/[A-Z0-9]+\/([\d.]+)KGS(?:;([\d.]+)CBM)?/gi
   let m
   while ((m = summary.exec(t))) {
     const id = m[1]
@@ -290,7 +295,7 @@ function parseCoscoContainers(text) {
     seen.add(id)
     containers.push({
       id,
-      seal: m[2],
+      seal: sealTokens(m[2]).join(', '),
       pkgs: parseNumber(m[3]),
       description: '',
       netKg: null,
@@ -304,11 +309,12 @@ function parseCoscoContainers(text) {
     const id = extractIsoId(chunk)
     if (!id) continue
     const weights = lastKnKb(chunk)
-    const seals = sealTokens(
-      chunk
-        .replace(/SEALS?:/gi, ' ')
-        .split(/BAGS OF|ECUADORIAN|COCOA|MARKS|\bDAE\b/)[0],
-    )
+    // Los sellos con etiqueta valen en todo el bloque. Una línea suelta solo antes de la descripción,
+    // para no tomar un teléfono o un FDA como sello.
+    const head = chunk.split(/BAGS OF|ECUADORIAN|COCOA|MARKS|\bDAE\b|\bLOTE\b/)[0]
+    const labeledSeals = [...chunk.matchAll(/\b(?:SEALS?|SELLOS?)\s*[:.#]\s*([A-Z0-9]+(?:[\s,/]+[A-Z0-9]+)*)/gi)]
+      .flatMap((m) => sealTokens(m[1].replace(/\/HC\d+\b.*/gi, ' ')))
+    const seals = [...new Set([...collectListedSeals(head), ...labeledSeals])]
     const pkgs = pkgsFrom(chunk)
     let row = containers.find((c) => c.id === id)
     if (!row) {
@@ -317,7 +323,9 @@ function parseCoscoContainers(text) {
       row = { id, seal: '', pkgs: null, description: '', netKg: null, grossKg: null, cbm: null }
       containers.push(row)
     }
-    if (!row.seal && seals.length) row.seal = seals.join(', ')
+    if (seals.length) {
+      row.seal = [...new Set([...sealTokens(row.seal), ...seals])].join(', ')
+    }
     if (row.pkgs == null || (pkgs != null && pkgs < 500 && (row.pkgs == null || row.pkgs >= 500))) row.pkgs = pkgs
     // Plantilla GLOBAL COCOA: "NET WEIGHT: 25,047.00 KG GROSS WEIGHT: 25,228.50 KG" dentro del bloque
     // (no el TOTAL NET WEIGHT del resumen). Va antes que el KN/KB sin etiqueta.
@@ -342,22 +350,38 @@ function parseCoscoContainers(text) {
   return containers
 }
 
+// En el PDF los sellos siguientes van en el mismo renglón que el contenedor.
+// Hace falta letra y cifra: 24978 y 25047 son pesos, no sellos.
+function oneGapSeals(text) {
+  const flat = sealTokens(text).filter((t) => (
+    /[A-Z]/.test(t) && /\d/.test(t) && !/^\d{2,6}[NSEW]$/.test(t) && !/^0[A-Z]{2,6}\d[A-Z]{1,3}$/.test(t)
+  ))
+  return [...new Set([...collectListedSeals(text), ...flat])]
+}
+
 function parseOneContainers(text) {
   const t = str(text).toUpperCase()
   const containers = []
   const seen = new Set()
-  const re = /([A-Z]{4}\d{7})\s*\/\s*([A-Z0-9]+)\s*\/\s*(\d+)\s+(CARTONS|BOXES|BAGS|PACKAGES|CAJAS)/gi
-  let m
-  while ((m = re.exec(t))) {
+  const re = /([A-Z]{4}\d{7})\s*\/\s*([A-Z0-9]+(?:\s+[A-Z0-9]+)*)\s*\/\s*(\d+)\s+(CARTONS|BOXES|BAGS|PACKAGES|CAJAS)/gi
+  const hits = [...t.matchAll(re)]
+  for (let i = 0; i < hits.length; i += 1) {
+    const m = hits[i]
     const id = m[1]
     if (seen.has(id) || /X40|X20/.test(id)) continue
     seen.add(id)
+    let nextAt = hits[i + 1] ? hits[i + 1].index : Math.min(t.length, m.index + m[0].length + 2500)
+    if (!hits[i + 1]) {
+      const stop = t.slice(m.index + m[0].length).search(/SAID TO CONTAIN|TOTAL BAGS|TOTAL NET|MARCAS:|\bLOTE\b/)
+      if (stop >= 0) nextAt = Math.min(nextAt, m.index + m[0].length + stop)
+    }
+    const between = t.slice(m.index + m[0].length, nextAt)
     const tail = t.slice(m.index, m.index + 220)
     const gw = parseNumber(tail.match(/([\d.]+)\s*KGS/i)?.[1])
     const cbm = parseNumber(tail.match(/([\d.]+)\s*(?:M3|CBM)/i)?.[1])
     containers.push({
       id,
-      seal: m[2],
+      seal: [...new Set([...sealTokens(m[2]), ...oneGapSeals(between)])].join(', '),
       pkgs: parseNumber(m[3]),
       description: descFrom(tail)
         || str(text).match(/SAID TO CONTAIN:\s*([\s\S]{10,160}?)(?=-{10,}|TOTAL |FREIGHT |PAGE:|$)/i)?.[1]?.replace(/\s+/g, ' ').trim()
@@ -368,16 +392,16 @@ function parseOneContainers(text) {
     })
   }
   if (!containers.length) {
-    const hits = [...t.matchAll(ISO_RE)]
-    for (const hit of hits) {
+    const looseIds = [...t.matchAll(ISO_RE)]
+    for (const hit of looseIds) {
       const id = hit[1]
       if (seen.has(id)) continue
       seen.add(id)
       const zone = t.slice(hit.index, hit.index + 180)
-      const seals = sealTokens(zone)
+      const seals = collectListedSeals(zone)
       containers.push({
         id,
-        seal: seals[0] || '',
+        seal: seals.join(', '),
         pkgs: pkgsFrom(zone),
         description: descFrom(zone),
         netKg: null,

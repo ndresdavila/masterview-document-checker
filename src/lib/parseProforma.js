@@ -84,6 +84,9 @@ function joinSpacedSeal(value) {
   if (!/^[A-Z0-9]+(?: [A-Z0-9]+)+$/.test(s)) return s
   const groups = s.split(' ')
   const compact = groups.join('')
+  if (groups.some((g) => /^[A-Z]{4,}$/.test(g))) return s
+  // "ECK6303 1450" y "B19243V 725": el número de al lado es un conteo, no parte del sello.
+  if (groups.some((g) => g.length >= 5 && /[A-Z]/.test(g) && /\d/.test(g)) && groups.some((g) => /^\d{3,5}$/.test(g))) return s
   if (!groups.some((g) => g.length < 5) || compact.length < 8 || compact.length > 14 || !/\d/.test(compact)) return s
   return compact
 }
@@ -202,14 +205,23 @@ function parseContainers(grid, startRow, endRow) {
       continue
     }
 
-    if (/^sellos?:?$/i.test(c0) || /^sellos?:/i.test(c0)) {
-      const rest = [c0.replace(/^sellos?:?\s*/i, ''), ...row.slice(1).map(str)]
+    if (/^(?:sellos?|seals?):?$/i.test(c0) || /^(?:sellos?|seals?):/i.test(c0)) {
+      // Solo la columna de sellos. El peso ("24978.00 KN") y el total (100775) van en otras
+      // columnas de la misma fila: no son sellos, y la fila sigue para leer ese peso.
+      const own = c0.replace(/^(?:sellos?|seals?):?\s*/i, '')
+      const extras = row.map(str).filter((s, i) => {
+        if (i === 0 || !s) return false
+        if (i === 3 || i === 8 || i === 9) return false
+        if (/\b(KGS?|KILOS?|K\.?\s*[NB]|CBM|M3|BAGS|PKGS)\b/i.test(s)) return false
+        if (/\d+[.,]\d+/.test(s) || /^\d[\d.,]*$/.test(s)) return false
+        return true
+      })
+      const rest = [own, ...extras]
         .map((part) => joinSpacedSeal(stripLoteLabels(part)))
         .filter(Boolean)
         .join(', ')
       current.seals.push(...sealTokens(rest))
       collectingSeals = true
-      continue
     }
 
     if (!current.pkgs) {
@@ -237,14 +249,18 @@ function parseContainers(grid, startRow, endRow) {
       if (plausibleCbm(rowCbm) && !/^cbm$/i.test(str(row[9]))) current.cbm = rowCbm
     }
 
+    // SPS1539900 cumple [A-Z]{3}\d{7} y extractIsoId lo tomaría por contenedor.
+    // Con el contenedor ya leído, es un sello. Un ISO de 4 letras sigue siendo el contenedor.
     const iso = extractIsoId(c0) || extractIsoId(joined)
+    const realIso = str(c0).toUpperCase().match(/\b([A-Z]{4}\d{7})\b/)?.[1] || ''
     if (iso && !current.id) {
       current.id = iso
       collectingSeals = false
-    } else if ((collectingSeals || current.id) && isSealToken(c0) && !iso) {
+    } else if ((collectingSeals || current.id) && isSealToken(c0) && !realIso) {
       // "LOTE#2611102" ya no es un sello: la etiqueta se quita antes de juntar grupos,
       // así "LOT NO 2611102" no se compacta en un token. Una cifra de 7 dígitos sin
-      // etiqueta sigue entrando.
+      // etiqueta sigue entrando. SPS1539900 sí: parece un id de 3 letras, pero el
+      // contenedor de 4 letras ya está leído.
       current.seals.push(...sealTokens(joinSpacedSeal(stripLoteLabels(c0))))
       collectingSeals = true
     }

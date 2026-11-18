@@ -330,28 +330,121 @@ export function loteLabelPayloads(value) {
   return [...str(value).matchAll(loteLabelPattern())].map((m) => m[1] || m[2] || m[3]).filter(Boolean)
 }
 
-export function sealTokens(value) {
+function stripSealNoise(value) {
+  let raw = str(value)
   // El DAE (DAE:028-2026-40-02099786) no es un sello. Si se parte por los guiones,
   // el último grupo (02099786) cumple el largo de un sello y se cuela en la lista.
-  // Un lote escrito con su etiqueta tampoco: "LOTE#2611102" se parte en 2611102.
-  const withoutDae = stripLoteLabels(str(value).replace(/\bDAE\s*:?\s*\d[\d-]*/gi, ' '))
-  return withoutDae
+  // Un lote con etiqueta tampoco: "LOTE#2611102" se parte en 2611102.
+  raw = stripLoteLabels(raw.replace(/\bDAE\s*:?\s*\d[\d-]*/gi, ' '))
+  raw = raw.replace(/\b(?:CONTRACT|CONTRATO)\s*(?:NO\.?|NUMBER|#)?\s*[:#]?\s*[A-Z0-9][A-Z0-9._-]*/gi, ' ')
+  raw = raw.replace(/\bSCS\d+\b/gi, ' ')
+  raw = raw.replace(/\b(?:ZIMU[A-Z]{0,6}\d{5,}|GYEG\d{6,}|ONEY[A-Z0-9]{8,}|COSU\d{8,}|ULGO\d{2}[A-Z]{2}\d{4,}|HLCU[A-Z0-9]{6,})\b/gi, ' ')
+  // "FS-36458" es un sello. El guion no lo parte en "36458".
+  raw = raw.replace(/\b([A-Z]{1,4})-(\d{4,10})\b/gi, '$1$2')
+  // Pesos y medidas: "25228.50 KG", "25090 KGS", "25,014.20", "20039.000KGS", "60.000M3".
+  raw = raw.replace(/\d[\d.,]*\s*(?:KGS?|KILOS?|K\.?\s*[NB]|LBS?|M3|CBM)\b/gi, ' ')
+  raw = raw.replace(/\b\d{1,3}(?:[.,]\d{3})+(?:[.,]\d{1,2})?\b/g, ' ')
+  raw = raw.replace(/\b\d+[.,]\d+\b/g, ' ')
+  return raw
+}
+
+export function sealTokens(value) {
+  const tokens = stripSealNoise(value)
     .toUpperCase()
     .split(/[^A-Z0-9]+/)
     .filter((t) => {
       if (t.length < 5 || t.length > 14) return false
       if (!/\d/.test(t)) return false
-      if (/X40HQ/.test(t)) return false
-      if (/^\d+X\d+(ST|HQ|GP|DRY)?$/.test(t)) return false
+      if (/X40HQ|X40HC/.test(t)) return false
+      if (/^\d+X\d+(ST|HQ|GP|HC|DRY)?$/.test(t)) return false
       if (ISO_RE.test(t)) return false
       if (/^(BAGS|SEALS?|SELLOS?|NET|GROSS|WEIGHT|CONTAINER|CONTENEDOR)$/.test(t)) return false
+      // 24978 / 25047 / 100775 son pesos, no sellos.
+      if (isBareWeightToken(t)) return false
       return true
     })
+  return dropAbsorbedCounts(tokens)
+}
+
+// Si "ECK6303" y "ECK63031450" salen juntos, el segundo absorbió el conteo de bultos.
+function dropAbsorbedCounts(tokens) {
+  const list = [...new Set(tokens)]
+  return list.filter((t) => !list.some((other) => (
+    other.length >= 5
+    && other.length < t.length
+    && t.startsWith(other)
+    && /^\d{3,5}$/.test(t.slice(other.length))
+  )))
+}
+
+const SEAL_LINE_NOISE = /\b(FDA|HS|CODE|CONTRACT|CONTRATO|LOTE|DAE|WEIGHT|KGS?|KILOS?|BAGS|BOXES|CARTONS|CAJAS|INVOICE|BOOKING|NET|GROSS|TOTAL|PAGE|VOYAGE|VESSEL|FREIGHT|PORT|CONTAINER|CONTENEDOR|SHIPPER|MARKS|MARCAS|CBM|M3|CNT|TARE|PACKED|DESCRIPTION|MEASUREMENT|ORIGIN|PRODUCT)\b/i
+
+function labeledSealTokens(line) {
+  const s = str(line)
+  if (!/(?:SEALS?|SELLOS?)\s*(?:[WBR]\s*)?[:.#]/i.test(s) && !/(?:(?:W|B|R|OTHER)\s+)(?:SEALS?|SELLOS?)\s*[:.#]/i.test(s)) {
+    return null
+  }
+  const body = s
+    .replace(/(?:(?:W|B|R|OTHER)\s+)?(?:SEALS?|SELLOS?)\s*[:.#]/gi, ' ')
+    .replace(/(?:SEALS?|SELLOS?)\s*(?:W|B|R)\s*[:.#]/gi, ' ')
+    .replace(/\/HC\d+\b.*/gi, ' ')
+  return sealTokens(body)
+}
+
+function isPureSealLine(line) {
+  const s = str(line).toUpperCase().replace(/\/HC\d+\b.*/g, '').trim()
+  if (!s || SEAL_LINE_NOISE.test(s) || /\b(SEALS?|SELLOS?)\b/.test(s)) return false
+  return /^[A-Z0-9]+(?:-[A-Z0-9]+)?(?:[\s,;/]+[A-Z0-9]+(?:-[A-Z0-9]+)?)*$/.test(s)
+}
+
+// Un número pelado en el rango de un peso de contenedor (24,978) o del total (100,775)
+// no es un sello si no viene detrás de la etiqueta SEAL.
+function isBareWeightToken(token) {
+  if (!/^\d+$/.test(token)) return false
+  const n = Number(token)
+  return (n >= 20000 && n <= 40000) || (n >= 100000 && n <= 400000)
+}
+
+// "A4 25 1040506" es un sello partido. "SPS151792 1450" no: 1450 es un conteo de bultos.
+function joinShortSealGroups(line) {
+  const s = str(line).toUpperCase().trim()
+  if (!/^[A-Z0-9]+(?: [A-Z0-9]+)+$/.test(s)) return line
+  const groups = s.split(' ')
+  // "TYPE GRADO 3" son palabras. "ECK6303 1450" es un sello y el conteo de la columna de al lado.
+  if (groups.some((g) => /^[A-Z]{4,}$/.test(g))) return line
+  if (groups.some((g) => g.length >= 5 && /[A-Z]/.test(g) && /\d/.test(g)) && groups.some((g) => /^\d{3,5}$/.test(g))) return line
+  const compact = groups.join('')
+  if (!groups.some((g) => g.length < 5) || compact.length < 8 || compact.length > 14 || !/\d/.test(compact)) return line
+  return compact
+}
+
+// Sellos de un bloque: cada "SEAL:" / "SEALS:" / "SELLO:" (también W/B/R y OTHER SEALS)
+// y las líneas que son solo sellos. No entra el peso, el contrato, el lote ni el booking.
+export function collectListedSeals(text) {
+  const seals = []
+  for (const line of str(text).split(/\n/)) {
+    const labeled = labeledSealTokens(line)
+    if (labeled) {
+      seals.push(...labeled)
+      continue
+    }
+    if (isPureSealLine(line)) {
+      seals.push(...sealTokens(joinShortSealGroups(line.replace(/\/HC\d+\b.*/gi, ' '))).filter((t) => !isBareWeightToken(t)))
+    }
+  }
+  return dropAbsorbedCounts(seals)
+}
+
+// RP0156380 y RP0156380EC son el mismo sello: el sufijo EC se conserva al leerlo
+// y se ignora solo al comparar.
+function sealKey(token) {
+  if (/^RP\d+EC$/.test(token)) return token.slice(0, -2)
+  return token
 }
 
 export function sealsMatch(a, b) {
-  const A = sealTokens(a).slice().sort()
-  const B = sealTokens(b).slice().sort()
+  const A = [...new Set(sealTokens(a).map(sealKey))].sort()
+  const B = [...new Set(sealTokens(b).map(sealKey))].sort()
   if (!A.length || !B.length || A.length !== B.length) return false
   return A.every((token, i) => token === B[i])
 }
