@@ -241,6 +241,35 @@ FS-36458
   assert.equal(sealsMatch(doc.containers[0].seal, 'Q225693, FS-36458'), true)
 })
 
+test('el sello de la línea SEALS no absorbe el conteo de bultos de al lado', () => {
+  const swb = parseHblFromPlainText(`
+CONTAINER: TEMU1234567
+SEALS:
+A4241249106
+ECK6303 1450
+BAGS OF ECUADOR COCOA
+`, 'ULGO26US00298 SIN FLETAR.pdf')
+  assert.equal(swb.containers[0].seal, 'A4241249106, ECK6303')
+
+  const hbl = parseHblFromPlainText(`
+CONTAINER: ZCSU7931432
+SEALS:
+A4251039931
+ECK6354 2900
+BAGS OF COCOA
+`, 'HBL FINAL ZIMUGYL809069.pdf')
+  assert.equal(hbl.containers[0].seal, 'A4251039931, ECK6354')
+
+  assert.deepEqual(collectListedSeals('ECK6503 1450'), ['ECK6503'])
+  assert.deepEqual(collectListedSeals('B19243V 725'), ['B19243V'])
+  assert.deepEqual(sealTokens('ECK6303, ECK63031450'), ['ECK6303'])
+  assert.deepEqual(sealTokens('10X40HC'), [])
+  assert.deepEqual(sealTokens('24978'), [])
+  assert.deepEqual(sealTokens('25047'), [])
+  assert.equal(sealsMatch('RP0156380', 'RP0156380EC'), true)
+  assert.equal(sealsMatch('A42511221826', 'A4251121826'), false)
+})
+
 test('el conteo de bultos no se pega al sello', () => {
   assert.deepEqual(collectListedSeals('SPS151792 1450'), ['SPS151792'])
   assert.deepEqual(collectListedSeals('SEAL: SPS151792\n1450 BAGS'), ['SPS151792'])

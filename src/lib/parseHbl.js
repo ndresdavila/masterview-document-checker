@@ -308,7 +308,10 @@ const FORM_TOTALS = /\bTOTAL CONTAINERS:[ \t]*\d+/i
 // Lo que main ya sacaba del bloque (sealTokens) más las líneas que son solo sellos.
 // "TYPE GRADO 3" no aporta tokens; "FS-36458" sí.
 function listedSealTokens(text) {
-  return [...new Set([...sealTokens(text), ...collectListedSeals(text)])]
+  const tokens = [...new Set([...sealTokens(text), ...collectListedSeals(text)])]
+  return tokens.filter((t) => !tokens.some((other) => (
+    other.length >= 5 && other.length < t.length && t.startsWith(other) && /^\d{3,5}$/.test(t.slice(other.length))
+  )))
 }
 
 function listedSeals(text) {
@@ -316,7 +319,10 @@ function listedSeals(text) {
 }
 
 function unionSealText(...values) {
-  return [...new Set(values.flatMap((v) => sealTokens(v)))].join(', ')
+  const tokens = values.flatMap((v) => sealTokens(v))
+  return tokens.filter((t) => !tokens.some((other) => (
+    other.length >= 5 && other.length < t.length && t.startsWith(other) && /^\d{3,5}$/.test(t.slice(other.length))
+  ))).filter((t, i, all) => all.indexOf(t) === i).join(', ')
 }
 
 function formFigures(chunk) {

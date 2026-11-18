@@ -85,8 +85,8 @@ function joinSpacedSeal(value) {
   const groups = s.split(' ')
   const compact = groups.join('')
   if (groups.some((g) => /^[A-Z]{4,}$/.test(g))) return s
-  // "SPS151792 1450" no se pega: 1450 es un conteo de bultos, no parte del sello.
-  if (groups.some((g) => g.length >= 8) && groups.some((g) => /^\d{3,4}$/.test(g))) return s
+  // "ECK6303 1450" y "B19243V 725": el número de al lado es un conteo, no parte del sello.
+  if (groups.some((g) => g.length >= 5 && /[A-Z]/.test(g) && /\d/.test(g)) && groups.some((g) => /^\d{3,5}$/.test(g))) return s
   if (!groups.some((g) => g.length < 5) || compact.length < 8 || compact.length > 14 || !/\d/.test(compact)) return s
   return compact
 }

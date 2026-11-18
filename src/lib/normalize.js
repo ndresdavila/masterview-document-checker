@@ -349,18 +349,32 @@ function stripSealNoise(value) {
 }
 
 export function sealTokens(value) {
-  return stripSealNoise(value)
+  const tokens = stripSealNoise(value)
     .toUpperCase()
     .split(/[^A-Z0-9]+/)
     .filter((t) => {
       if (t.length < 5 || t.length > 14) return false
       if (!/\d/.test(t)) return false
-      if (/X40HQ/.test(t)) return false
-      if (/^\d+X\d+(ST|HQ|GP|DRY)?$/.test(t)) return false
+      if (/X40HQ|X40HC/.test(t)) return false
+      if (/^\d+X\d+(ST|HQ|GP|HC|DRY)?$/.test(t)) return false
       if (ISO_RE.test(t)) return false
       if (/^(BAGS|SEALS?|SELLOS?|NET|GROSS|WEIGHT|CONTAINER|CONTENEDOR)$/.test(t)) return false
+      // 24978 / 25047 / 100775 son pesos, no sellos.
+      if (isBareWeightToken(t)) return false
       return true
     })
+  return dropAbsorbedCounts(tokens)
+}
+
+// Si "ECK6303" y "ECK63031450" salen juntos, el segundo absorbió el conteo de bultos.
+function dropAbsorbedCounts(tokens) {
+  const list = [...new Set(tokens)]
+  return list.filter((t) => !list.some((other) => (
+    other.length >= 5
+    && other.length < t.length
+    && t.startsWith(other)
+    && /^\d{3,5}$/.test(t.slice(other.length))
+  )))
 }
 
 const SEAL_LINE_NOISE = /\b(FDA|HS|CODE|CONTRACT|CONTRATO|LOTE|DAE|WEIGHT|KGS?|KILOS?|BAGS|BOXES|CARTONS|CAJAS|INVOICE|BOOKING|NET|GROSS|TOTAL|PAGE|VOYAGE|VESSEL|FREIGHT|PORT|CONTAINER|CONTENEDOR|SHIPPER|MARKS|MARCAS|CBM|M3|CNT|TARE|PACKED|DESCRIPTION|MEASUREMENT|ORIGIN|PRODUCT)\b/i
@@ -396,9 +410,9 @@ function joinShortSealGroups(line) {
   const s = str(line).toUpperCase().trim()
   if (!/^[A-Z0-9]+(?: [A-Z0-9]+)+$/.test(s)) return line
   const groups = s.split(' ')
-  // "TYPE GRADO 3" son palabras. "SPS151792 1450" es un sello y un conteo de bultos.
+  // "TYPE GRADO 3" son palabras. "ECK6303 1450" es un sello y el conteo de la columna de al lado.
   if (groups.some((g) => /^[A-Z]{4,}$/.test(g))) return line
-  if (groups.some((g) => g.length >= 8) && groups.some((g) => /^\d{3,4}$/.test(g))) return line
+  if (groups.some((g) => g.length >= 5 && /[A-Z]/.test(g) && /\d/.test(g)) && groups.some((g) => /^\d{3,5}$/.test(g))) return line
   const compact = groups.join('')
   if (!groups.some((g) => g.length < 5) || compact.length < 8 || compact.length > 14 || !/\d/.test(compact)) return line
   return compact
@@ -418,12 +432,19 @@ export function collectListedSeals(text) {
       seals.push(...sealTokens(joinShortSealGroups(line.replace(/\/HC\d+\b.*/gi, ' '))).filter((t) => !isBareWeightToken(t)))
     }
   }
-  return [...new Set(seals)]
+  return dropAbsorbedCounts(seals)
+}
+
+// RP0156380 y RP0156380EC son el mismo sello: el sufijo EC se conserva al leerlo
+// y se ignora solo al comparar.
+function sealKey(token) {
+  if (/^RP\d+EC$/.test(token)) return token.slice(0, -2)
+  return token
 }
 
 export function sealsMatch(a, b) {
-  const A = sealTokens(a).slice().sort()
-  const B = sealTokens(b).slice().sort()
+  const A = [...new Set(sealTokens(a).map(sealKey))].sort()
+  const B = [...new Set(sealTokens(b).map(sealKey))].sort()
   if (!A.length || !B.length || A.length !== B.length) return false
   return A.every((token, i) => token === B[i])
 }
