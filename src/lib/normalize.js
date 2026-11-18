@@ -316,7 +316,10 @@ export function lotesMatch(a, b) {
 }
 
 export function sealTokens(value) {
-  return str(value)
+  // El DAE (DAE:028-2026-40-02099786) no es un sello. Si se parte por los guiones,
+  // el último grupo (02099786) cumple el largo de un sello y se cuela en la lista.
+  const withoutDae = str(value).replace(/\bDAE\s*:?\s*\d[\d-]*/gi, ' ')
+  return withoutDae
     .toUpperCase()
     .split(/[^A-Z0-9]+/)
     .filter((t) => {
@@ -331,21 +334,10 @@ export function sealTokens(value) {
 }
 
 export function sealsMatch(a, b) {
-  const A = sealTokens(a)
-  const B = sealTokens(b)
-  if (!A.length || !B.length) return false
-  if (!A.some((x) => B.includes(x))) return false
-  // Un sello casi igual al del otro lado (FELP315882 vs FELP315883) es un error de tipeo, no otro sello.
-  const onlyA = A.filter((x) => !B.includes(x))
-  const onlyB = B.filter((y) => !A.includes(y))
-  return !onlyA.some((x) => onlyB.some((y) => nearTwin(x, y)))
-}
-
-function nearTwin(x, y) {
-  if (x.length !== y.length || x.length < 6) return false
-  let diff = 0
-  for (let i = 0; i < x.length; i += 1) if (x[i] !== y[i]) diff += 1
-  return diff > 0 && diff <= 2
+  const A = sealTokens(a).slice().sort()
+  const B = sealTokens(b).slice().sort()
+  if (!A.length || !B.length || A.length !== B.length) return false
+  return A.every((token, i) => token === B[i])
 }
 
 export function extractIsoId(text) {

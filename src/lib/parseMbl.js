@@ -189,7 +189,7 @@ function parseZimContainers(text) {
       .map((x) => parseNumber(x[1]))
       .filter((n) => n != null && n >= 50 && n < 500)
     const seals = [...after.matchAll(/SEAL:\s*([A-Z0-9]+)/gi)].map((x) => x[1])
-    const extra = sealTokens(after.split(/BAGS OF|MARCAS|SHIPPER'S LOAD|CONT TARE|\bLOTE\b/)[0])
+    const extra = sealTokens(after.split(/BAGS OF|MARCAS|SHIPPER'S LOAD|CONT TARE|\bLOTE\b|\bDAE\b/)[0])
     const netKg = labeledNet ?? weights.netKg
     // Columna WEIGHT de la lista anexa: la cifra justo antes de "SHIPPER'S LOAD STOWAGE & COUNT".
     // Sirve cuando el KB de la descripción viene partido ("25, 228.50 KB").
@@ -307,7 +307,7 @@ function parseCoscoContainers(text) {
     const seals = sealTokens(
       chunk
         .replace(/SEALS?:/gi, ' ')
-        .split(/BAGS OF|ECUADORIAN|COCOA|MARKS/)[0],
+        .split(/BAGS OF|ECUADORIAN|COCOA|MARKS|\bDAE\b/)[0],
     )
     const pkgs = pkgsFrom(chunk)
     let row = containers.find((c) => c.id === id)

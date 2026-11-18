@@ -349,7 +349,7 @@ function parseContainersFromText(text) {
     }
     // "SEALS" puede venir sin dos puntos (SWB de ZIM); el bloque termina en el siguiente contenedor.
     const afterSeals = afterId.split(/SEALS?:|SELLOS?:|(?:^|\n)[ \t]*(?:SEALS?|SELLOS?)[ \t]*(?=\n)/i)[1]
-    const sealZone = (afterSeals || afterId).split(/BAGS OF|MARCAS|TOTAL BAGS|TOTAL PKGS|CONTAINER|CONTENEDOR|\bLOTE\b|\b[A-Z]{4}\d{7}\b/)[0]
+    const sealZone = (afterSeals || afterId).split(/BAGS OF|MARCAS|TOTAL BAGS|TOTAL PKGS|CONTAINER|CONTENEDOR|\bLOTE\b|\bDAE\b|\b[A-Z]{4}\d{7}\b/)[0]
     const seals = sealTokens(sealZone.replace(/^\s*(SEALS?|SELLOS?):?\s*/i, ''))
     const beforeTotal = afterId.split(/TOTAL BAGS|TOTAL PKGS|TOTAL PACKAGES/)[0]
     const bagHitsNear = [...beforeTotal.matchAll(/(\d{3,4})\s+BAGS\b/gi)]
@@ -379,7 +379,7 @@ function parseContainersFromText(text) {
       const from = m.index + m[0].length
       const next = hits.find((x) => x.index > m.index && x[1] !== id)
       const zone = cargo.slice(from, next ? next.index : from + 220)
-      const seals = sealTokens(zone.replace(/^\s*(SEALS?|SELLOS?):?\s*/i, '').split(/BAGS|MARKS|TOTAL|CONTAINER/)[0])
+      const seals = sealTokens(zone.replace(/^\s*(SEALS?|SELLOS?):?\s*/i, '').split(/BAGS|MARKS|TOTAL|CONTAINER|\bDAE\b/)[0])
       containers.push({
         id,
         seal: seals.join(', '),
