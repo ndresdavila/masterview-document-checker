@@ -6,7 +6,9 @@ import {
   splitVesselVoyagePort,
   extractBooking,
   extractIsoId,
+  loteLabelPayloads,
   sealTokens,
+  stripLoteLabels,
 } from './normalize.js'
 
 function gridFromSheet(sheet) {
@@ -202,7 +204,7 @@ function parseContainers(grid, startRow, endRow) {
 
     if (/^sellos?:?$/i.test(c0) || /^sellos?:/i.test(c0)) {
       const rest = [c0.replace(/^sellos?:?\s*/i, ''), ...row.slice(1).map(str)]
-        .map(joinSpacedSeal)
+        .map((part) => joinSpacedSeal(stripLoteLabels(part)))
         .filter(Boolean)
         .join(', ')
       current.seals.push(...sealTokens(rest))
@@ -240,7 +242,10 @@ function parseContainers(grid, startRow, endRow) {
       current.id = iso
       collectingSeals = false
     } else if ((collectingSeals || current.id) && isSealToken(c0) && !iso) {
-      current.seals.push(...sealTokens(joinSpacedSeal(c0)))
+      // "LOTE#2611102" ya no es un sello: la etiqueta se quita antes de juntar grupos,
+      // así "LOT NO 2611102" no se compacta en un token. Una cifra de 7 dígitos sin
+      // etiqueta sigue entrando.
+      current.seals.push(...sealTokens(joinSpacedSeal(stripLoteLabels(c0))))
       collectingSeals = true
     }
 
@@ -303,7 +308,7 @@ function parseLooseIsoContainers(grid, startRow, endRow) {
       if (!s) continue
       if (ISO_RE.test(s.toUpperCase())) break
       if (/^marks$/i.test(s) || /total bags|total pkgs/i.test(s)) break
-      if (isSealToken(s)) seals.push(...sealTokens(joinSpacedSeal(s)))
+      if (isSealToken(s)) seals.push(...sealTokens(joinSpacedSeal(stripLoteLabels(s))))
     }
     const rowGross = parseNumber(row[8])
     const rowCbm = parseNumber(row[9])
@@ -474,7 +479,9 @@ export function parseProformaArrayBuffer(buffer, fileName = '') {
       if (/^(contenedor|container|sellos?|seals?|marcas):?/i.test(s)) continue
       if (/^naviera:|^shipper:|^p\.a\s*:/i.test(s)) continue
       if (ISO_RE.test(s.toUpperCase())) continue
-      if (isSealToken(s) && s.length <= 14) continue
+      // La cifra de un lote ("LOTE#2611102") ya no es un sello, pero sigue sin ser una línea
+      // de marcas: antes se descartaba aquí porque esa cifra parecía un sello.
+      if (s.length <= 14 && (isSealToken(s) || loteLabelPayloads(s).some((p) => sealTokens(p).length > 0))) continue
       if (/^sps\d/i.test(s)) continue
       const cleaned = s.replace(/^sps\s+/i, '').trim()
       if (!cleaned) continue
