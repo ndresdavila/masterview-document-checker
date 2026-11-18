@@ -388,11 +388,12 @@ function parseSwbContainers(grid, startRow) {
     }
 
     const iso = extractIsoId(c0) || extractIsoId(joined)
+    const realIso = str(c0).toUpperCase().match(/\b([A-Z]{4}\d{7})\b/)?.[1] || ''
     if (iso && !current.id) current.id = iso
 
     if (/^seals?:/i.test(c0)) {
       current.seals.push(...sealTokens(c0.replace(/^seals?:?\s*/i, '')))
-    } else if (current.id && isSealToken(c0) && !iso && !/^(DAE|FDA|HS CODE|CONTRACT|CONTRATO|REF|INVOICE|LOTE)/i.test(c0)) {
+    } else if (current.id && isSealToken(c0) && !realIso && !/^(DAE|FDA|HS CODE|CONTRACT|CONTRATO|REF|INVOICE|LOTE)/i.test(c0)) {
       current.seals.push(...sealTokens(c0))
     }
 

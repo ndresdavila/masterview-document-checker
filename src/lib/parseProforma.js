@@ -202,8 +202,8 @@ function parseContainers(grid, startRow, endRow) {
       continue
     }
 
-    if (/^sellos?:?$/i.test(c0) || /^sellos?:/i.test(c0)) {
-      const rest = [c0.replace(/^sellos?:?\s*/i, ''), ...row.slice(1).map(str)]
+    if (/^(?:sellos?|seals?):?$/i.test(c0) || /^(?:sellos?|seals?):/i.test(c0)) {
+      const rest = [c0.replace(/^(?:sellos?|seals?):?\s*/i, ''), ...row.slice(1).map(str)]
         .map((part) => joinSpacedSeal(stripLoteLabels(part)))
         .filter(Boolean)
         .join(', ')
@@ -237,14 +237,18 @@ function parseContainers(grid, startRow, endRow) {
       if (plausibleCbm(rowCbm) && !/^cbm$/i.test(str(row[9]))) current.cbm = rowCbm
     }
 
+    // SPS1539900 cumple [A-Z]{3}\d{7} y extractIsoId lo tomaría por contenedor.
+    // Con el contenedor ya leído, es un sello. Un ISO de 4 letras sigue siendo el contenedor.
     const iso = extractIsoId(c0) || extractIsoId(joined)
+    const realIso = str(c0).toUpperCase().match(/\b([A-Z]{4}\d{7})\b/)?.[1] || ''
     if (iso && !current.id) {
       current.id = iso
       collectingSeals = false
-    } else if ((collectingSeals || current.id) && isSealToken(c0) && !iso) {
+    } else if ((collectingSeals || current.id) && isSealToken(c0) && !realIso) {
       // "LOTE#2611102" ya no es un sello: la etiqueta se quita antes de juntar grupos,
       // así "LOT NO 2611102" no se compacta en un token. Una cifra de 7 dígitos sin
-      // etiqueta sigue entrando.
+      // etiqueta sigue entrando. SPS1539900 sí: parece un id de 3 letras, pero el
+      // contenedor de 4 letras ya está leído.
       current.seals.push(...sealTokens(joinSpacedSeal(stripLoteLabels(c0))))
       collectingSeals = true
     }

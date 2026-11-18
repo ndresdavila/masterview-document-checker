@@ -9,6 +9,7 @@ import {
   extractBooking,
   extractIsoId,
   sealTokens,
+  collectListedSeals,
   canon,
 } from './normalize.js'
 
@@ -312,7 +313,7 @@ function formFigures(chunk) {
   if (grossAt < 0) return null
   const description = cells.slice(2, grossAt).join('\n')
   return {
-    seal: sealTokens((cells[0].split(/SEALS?:/i)[1] || '')).join(', '),
+    seal: collectListedSeals(cells[0].split(/SEALS?:|SELLOS?:/i).slice(1).join('\n')).join(', '),
     pkgs: parseNumber(cells[1]),
     description: str(description),
     netKg: descriptionNet(description),
@@ -342,15 +343,18 @@ function parseContainersFromText(text) {
     if (!id) continue
     const afterId = chunk.slice(chunk.toUpperCase().indexOf(id) + id.length)
     if (fromDashboard) {
-      const sealZone = (afterId.split(/SEALS?:/i)[1] || '').split(/\n[ \t]*\n/)[0]
+      // Cada sello puede ir en su propio párrafo (línea en blanco). No cortar en la primera.
+      const sealSrc = afterId.split(/SEALS?:|SELLOS?:/i).slice(1).join('\n')
+        .split(/BAGS OF|MARCAS|TOTAL BAGS|TOTAL PKGS|(?:CONTAINER|CONTENEDOR)\s*:|\bLOTE\b|\bDAE\b/)[0]
       const figures = dashboardFigures(afterId)
-      containers.push({ id, seal: sealTokens(sealZone).join(', '), ...figures })
+      containers.push({ id, seal: collectListedSeals(sealSrc).join(', '), ...figures })
       continue
     }
-    // "SEALS" puede venir sin dos puntos (SWB de ZIM); el bloque termina en el siguiente contenedor.
-    const afterSeals = afterId.split(/SEALS?:|SELLOS?:|(?:^|\n)[ \t]*(?:SEALS?|SELLOS?)[ \t]*(?=\n)/i)[1]
-    const sealZone = (afterSeals || afterId).split(/BAGS OF|MARCAS|TOTAL BAGS|TOTAL PKGS|CONTAINER|CONTENEDOR|\bLOTE\b|\bDAE\b|\b[A-Z]{4}\d{7}\b/)[0]
-    const seals = sealTokens(sealZone.replace(/^\s*(SEALS?|SELLOS?):?\s*/i, ''))
+    // "SEALS" puede venir sin dos puntos (SWB de ZIM). Varios "SEAL:" no se quedan en el primero.
+    // "CONTAINERS" de la descripción no cierra la lista (sí "CONTAINER:").
+    const afterSeals = afterId.split(/SEALS?:|SELLOS?:|(?:^|\n)[ \t]*(?:SEALS?|SELLOS?)[ \t]*(?=\n)/i).slice(1).join('\n')
+    const sealZone = (afterSeals || afterId).split(/BAGS OF|MARCAS|TOTAL BAGS|TOTAL PKGS|(?:CONTAINER|CONTENEDOR)\s*:|\bLOTE\b|\bDAE\b|\b[A-Z]{4}\d{7}\b/)[0]
+    const seals = collectListedSeals(sealZone)
     const beforeTotal = afterId.split(/TOTAL BAGS|TOTAL PKGS|TOTAL PACKAGES/)[0]
     const bagHitsNear = [...beforeTotal.matchAll(/(\d{3,4})\s+BAGS\b/gi)]
       .map((m) => parseNumber(m[1]))
@@ -379,7 +383,7 @@ function parseContainersFromText(text) {
       const from = m.index + m[0].length
       const next = hits.find((x) => x.index > m.index && x[1] !== id)
       const zone = cargo.slice(from, next ? next.index : from + 220)
-      const seals = sealTokens(zone.replace(/^\s*(SEALS?|SELLOS?):?\s*/i, '').split(/BAGS|MARKS|TOTAL|CONTAINER|\bDAE\b/)[0])
+      const seals = collectListedSeals(zone.split(/BAGS OF|MARCAS|TOTAL BAGS|(?:CONTAINER|CONTENEDOR)\s*:|\bDAE\b/)[0])
       containers.push({
         id,
         seal: seals.join(', '),
@@ -787,7 +791,10 @@ function parseHblFromPdfWords(words, fileName, extraText = '') {
   const firstIdY = words
     .filter((w) => w.x < 178 && w.y >= 240 && w.y < 300 && /^[A-Z]{4}\d{7}$/.test(str(w.str)))
     .reduce((m, w) => Math.min(m, w.y), 300)
-  const leftCargo = textIn(words, { x0: 0, x1: 178, y0: Math.min(300, firstIdY - 1), y1: 700 }).join('\n')
+  // La columna llega hasta el pie. Con y=700 se perdían los sellos W/B/R del último contenedor de la hoja.
+  const leftLines = textIn(words, { x0: 0, x1: 178, y0: Math.min(300, firstIdY - 1), y1: 830 })
+  const footerAt = leftLines.findIndex((l) => /shipper.?s load|received by the carrier|place and date of issue|freight\s*&\s*charges|if no value|declared liability/i.test(l))
+  const leftCargo = (footerAt >= 0 ? leftLines.slice(0, footerAt) : leftLines).join('\n')
   // Some SWB layouts start the description column left of x=178 (e.g. x~164-177).
   // Stop the marks box just before it so marks lines do not merge with descriptions.
   const descColX = words
