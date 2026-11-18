@@ -315,10 +315,26 @@ export function lotesMatch(a, b) {
   return Boolean(nA) && nA === nB
 }
 
+// LOTE#2611102, "LOTE: 2611102", "LOTE 2611102", "LOT NO 2611102", "LOTE Nº 2611102".
+// El grupo que sigue a la etiqueta es el lote; si es una cifra de 7 dígitos, sin este corte
+// cumpliría el largo de un sello. Una cifra suelta ("1234567") no lleva etiqueta y sí es sello.
+function loteLabelPattern() {
+  return /\bLOTE\s*(?:#|:|N[º°]\.?|NO\.?|NUMBER|NRO\.?)\s*:?\s*([A-Z0-9-]+)|\bLOT\s*(?:#|:|N[º°]\.?|NO\.?|NUMBER|NRO\.?)\s*:?\s*([A-Z0-9-]+)|\bLOTE\s+([A-Z0-9-]+)/gi
+}
+
+export function stripLoteLabels(value) {
+  return str(value).replace(loteLabelPattern(), ' ')
+}
+
+export function loteLabelPayloads(value) {
+  return [...str(value).matchAll(loteLabelPattern())].map((m) => m[1] || m[2] || m[3]).filter(Boolean)
+}
+
 export function sealTokens(value) {
   // El DAE (DAE:028-2026-40-02099786) no es un sello. Si se parte por los guiones,
   // el último grupo (02099786) cumple el largo de un sello y se cuela en la lista.
-  const withoutDae = str(value).replace(/\bDAE\s*:?\s*\d[\d-]*/gi, ' ')
+  // Un lote escrito con su etiqueta tampoco: "LOTE#2611102" se parte en 2611102.
+  const withoutDae = stripLoteLabels(str(value).replace(/\bDAE\s*:?\s*\d[\d-]*/gi, ' '))
   return withoutDae
     .toUpperCase()
     .split(/[^A-Z0-9]+/)

@@ -561,7 +561,15 @@ function parseHblFromPlainText(text, fileName, { notifyCells } = {}) {
     const all = [...t.matchAll(re)]
     return all.length ? all[all.length - 1][0] : ''
   })()
-  const marksMatch = t.match(/MARCAS:?\s*([\s\S]{0,220}?)(?=\d+\s+BAGS|TOTAL BAGS|TOTAL PKGS|HS CODE|FREIGHT COLLECT|$)/i)
+  // El corte de siempre (BAGS, TOTAL PKGS, HS CODE, …). Si ninguno cae dentro de 220 caracteres,
+  // una descripción de varios SKU quedó en medio y el bloque salía vacío. El segundo intento
+  // para antes, en PACKAGES / TOTAL PACKAGES o al empezar la descripción ("1776 PACKAGES",
+  // "PACKAGES" a secas). Solo se usa cuando el primero no encontró corte: un bloque que ya
+  // se leía no se acorta.
+  const marksBounded = /MARCAS:?\s*([\s\S]{0,220}?)(?=\d+\s+BAGS|TOTAL BAGS|TOTAL PKGS|HS CODE|FREIGHT COLLECT|$)/i
+  const marksAtDescription = /MARCAS:?\s*([\s\S]{0,220}?)(?=\d+\s+BAGS|TOTAL BAGS|TOTAL PKGS|TOTAL PACKAGES|HS CODE|FREIGHT COLLECT|\d[\d.,]*\s+PACKAGES\b|(?:^|\n)[ \t]*PACKAGES\b|\d[\d.,]*\s+(?:BOXES|CAJAS|CARTONS|SACKS|SACOS|PKGS|BULTOS|PAQUETES|PALLETS|BALES|DRUMS)\b)/i
+  const marksMatch = t.match(marksBounded)
+    || t.match(marksAtDescription)
     // HBL del dashboard: la celda de marcas dice "MARKS:" y termina donde termina la celda.
     || (DASHBOARD_TOTAL_ROW.test(t) ? t.match(/(?:^|\n)MARKS:[ \t]*\n[\s\S]*?(?=\n[ \t]*\n|$)/) : null)
   const marcaLine = t.match(/MARCA:\s*[A-Z0-9 ./-]+/i)?.[0] || ''
