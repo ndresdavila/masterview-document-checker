@@ -5,7 +5,7 @@ import { parseHblFromPdfWords, parseHblFromPlainText } from './parseHbl.js'
 import { parseMblFromPlainText } from './parseMbl.js'
 import { parseProformaArrayBuffer } from './parseProforma.js'
 import { parseSwbFromGrid } from './parseSwb.js'
-import { sealTokens, sealsMatch } from './normalize.js'
+import { collectListedSeals, sealTokens, sealsMatch } from './normalize.js'
 
 test('sealTokens deja fuera peso, contrato, lote, DAE y booking', () => {
   assert.deepEqual(sealTokens('25228.50 KG'), [])
@@ -226,6 +226,80 @@ test('la proforma lee SPS1539900 y el sello de más, y no el peso', () => {
   const byId = Object.fromEntries(doc.containers.map((c) => [c.id, c.seal]))
   assert.equal(byId.JXLU6124647, 'A4241251107, SPS1539900')
   assert.equal(byId.JXLU4585721, 'KM64378, KM62378')
+})
+
+test('un sello con guion se conserva entero', () => {
+  const doc = parseHblFromPlainText(`
+CONTAINER: CAAU8719319
+SEALS:
+Q225693
+FS-36458
+363 BAGS OF ECUADORIAN COCOA BEANS TYPE GRADO 3
+`, 'HBL FINAL - ULGO26US00317.pdf')
+  assert.equal(doc.containers[0].seal, 'Q225693, FS36458')
+  assert.equal(sealsMatch('Q225693, FS-36458', 'Q225693, FS36458'), true)
+  assert.equal(sealsMatch(doc.containers[0].seal, 'Q225693, FS-36458'), true)
+})
+
+test('el conteo de bultos no se pega al sello', () => {
+  assert.deepEqual(collectListedSeals('SPS151792 1450'), ['SPS151792'])
+  assert.deepEqual(collectListedSeals('SEAL: SPS151792\n1450 BAGS'), ['SPS151792'])
+  assert.deepEqual(sealTokens('SPS151792 1450 BAGS'), ['SPS151792'])
+  const doc = parseMblFromPlainText(`
+BILL OF LADING
+ZIM INTEGRATED
+ZIMUGYL00022175
+CONT:ZCSU7940835
+SEAL: A4241255245
+SEAL: SPS151792
+1450 BAGS OF ECUADOR COCOA BEANS GRADE 3
+`, 'SWB_ZIMUGYL00022175.pdf')
+  assert.equal(doc.containers[0].seal, 'A4241255245, SPS151792')
+})
+
+test('TYPE GRADO 3 no reemplaza al sello', () => {
+  const doc = parseHblFromPlainText(`
+CONTAINER: JXLU4585721
+SEALS:
+A42511221826
+TYPE GRADO 3
+127761PV
+362 BAGS OF ECUADOR COCOA BEANS
+`, 'SWB_ZIMUGYL804697.pdf')
+  assert.equal(doc.containers[0].seal, 'A42511221826, 127761PV')
+})
+
+test('MBL ONE en una sola línea trae el resto de sellos y no el peso', () => {
+  const doc = parseMblFromPlainText(`
+BILL OF LADING
+OCEAN NETWORK EXPRESS
+ONEYGYEG19549800
+ONEU5646957 / LAAG41047 / 290 BAGS /FCL / FCL/40HQ/20068.000KGS/49.000M3 R120741A W03968 B210856 RP0153147EC 24978 25047
+ONEU6148795 / LAAG41052 / 290 BAGS /FCL / FCL/40HQ/20068.000KGS/49.000M3
+`, 'Final_Bl_ONEYGYEG19549800.pdf')
+  const row = doc.containers.find((c) => c.id === 'ONEU5646957')
+  assert.equal(row.seal, 'LAAG41047, R120741A, W03968, B210856, RP0153147EC')
+})
+
+test('la fila SEALS de la proforma no se come el peso ni el total', () => {
+  const rows = [
+    ['MARKS AND NUMBERS /', '', '', 'NO. OF', '', 'DESCRIPTION OF PACKAGES AND GOODS', '', '', 'GROSS WEIGHT', 'MEASUREMENT'],
+    ['CONTAINER NUMBERS', '', '', 'PKGS'],
+    ['CONTENEDOR:', '', '', '', '', '362 BAGS OF ECUADORIAN COCOA'],
+    ['ZCSU6768974', '', '', 1450, '', 'BEAN GRADE 3'],
+    ['SEALS:', '', '', 'BAGS', '', '24978.00 KN - 25159.00 KB', '', '', 100775, 200],
+    ['A4251039077'],
+    ['FELP315879'],
+    ['TOTAL BAGS'],
+  ]
+  const sheet = XLSX.utils.aoa_to_sheet(rows)
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, sheet, 'BILL OF LADING ')
+  const doc = parseProformaArrayBuffer(XLSX.write(wb, { type: 'array', bookType: 'xls' }), 'proforma-810973.xls')
+  assert.equal(doc.containers[0].id, 'ZCSU6768974')
+  assert.equal(doc.containers[0].seal, 'A4251039077, FELP315879')
+  assert.equal(doc.containers[0].netKg, 24978)
+  assert.equal(doc.containers[0].grossKg, 25159)
 })
 
 test('el SWB no toma el contrato SCS como sello', () => {

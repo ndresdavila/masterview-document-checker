@@ -339,6 +339,8 @@ function stripSealNoise(value) {
   raw = raw.replace(/\b(?:CONTRACT|CONTRATO)\s*(?:NO\.?|NUMBER|#)?\s*[:#]?\s*[A-Z0-9][A-Z0-9._-]*/gi, ' ')
   raw = raw.replace(/\bSCS\d+\b/gi, ' ')
   raw = raw.replace(/\b(?:ZIMU[A-Z]{0,6}\d{5,}|GYEG\d{6,}|ONEY[A-Z0-9]{8,}|COSU\d{8,}|ULGO\d{2}[A-Z]{2}\d{4,}|HLCU[A-Z0-9]{6,})\b/gi, ' ')
+  // "FS-36458" es un sello. El guion no lo parte en "36458".
+  raw = raw.replace(/\b([A-Z]{1,4})-(\d{4,10})\b/gi, '$1$2')
   // Pesos y medidas: "25228.50 KG", "25090 KGS", "25,014.20", "20039.000KGS", "60.000M3".
   raw = raw.replace(/\d[\d.,]*\s*(?:KGS?|KILOS?|K\.?\s*[NB]|LBS?|M3|CBM)\b/gi, ' ')
   raw = raw.replace(/\b\d{1,3}(?:[.,]\d{3})+(?:[.,]\d{1,2})?\b/g, ' ')
@@ -378,14 +380,25 @@ function labeledSealTokens(line) {
 function isPureSealLine(line) {
   const s = str(line).toUpperCase().replace(/\/HC\d+\b.*/g, '').trim()
   if (!s || SEAL_LINE_NOISE.test(s) || /\b(SEALS?|SELLOS?)\b/.test(s)) return false
-  return /^[A-Z0-9]+(?:[\s,;/]+[A-Z0-9]+)*$/.test(s)
+  return /^[A-Z0-9]+(?:-[A-Z0-9]+)?(?:[\s,;/]+[A-Z0-9]+(?:-[A-Z0-9]+)?)*$/.test(s)
 }
 
-// "A4 25 1040506" es un sello partido. "KM62378 KM64378" son dos: ninguno es demasiado corto.
+// Un número pelado en el rango de un peso de contenedor (24,978) o del total (100,775)
+// no es un sello si no viene detrás de la etiqueta SEAL.
+function isBareWeightToken(token) {
+  if (!/^\d+$/.test(token)) return false
+  const n = Number(token)
+  return (n >= 20000 && n <= 40000) || (n >= 100000 && n <= 400000)
+}
+
+// "A4 25 1040506" es un sello partido. "SPS151792 1450" no: 1450 es un conteo de bultos.
 function joinShortSealGroups(line) {
   const s = str(line).toUpperCase().trim()
   if (!/^[A-Z0-9]+(?: [A-Z0-9]+)+$/.test(s)) return line
   const groups = s.split(' ')
+  // "TYPE GRADO 3" son palabras. "SPS151792 1450" es un sello y un conteo de bultos.
+  if (groups.some((g) => /^[A-Z]{4,}$/.test(g))) return line
+  if (groups.some((g) => g.length >= 8) && groups.some((g) => /^\d{3,4}$/.test(g))) return line
   const compact = groups.join('')
   if (!groups.some((g) => g.length < 5) || compact.length < 8 || compact.length > 14 || !/\d/.test(compact)) return line
   return compact
@@ -401,7 +414,9 @@ export function collectListedSeals(text) {
       seals.push(...labeled)
       continue
     }
-    if (isPureSealLine(line)) seals.push(...sealTokens(joinShortSealGroups(line.replace(/\/HC\d+\b.*/gi, ' '))))
+    if (isPureSealLine(line)) {
+      seals.push(...sealTokens(joinShortSealGroups(line.replace(/\/HC\d+\b.*/gi, ' '))).filter((t) => !isBareWeightToken(t)))
+    }
   }
   return [...new Set(seals)]
 }

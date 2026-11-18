@@ -350,6 +350,15 @@ function parseCoscoContainers(text) {
   return containers
 }
 
+// En el PDF los sellos siguientes van en el mismo renglón que el contenedor.
+// Hace falta letra y cifra: 24978 y 25047 son pesos, no sellos.
+function oneGapSeals(text) {
+  const flat = sealTokens(text).filter((t) => (
+    /[A-Z]/.test(t) && /\d/.test(t) && !/^\d{2,6}[NSEW]$/.test(t) && !/^0[A-Z]{2,6}\d[A-Z]{1,3}$/.test(t)
+  ))
+  return [...new Set([...collectListedSeals(text), ...flat])]
+}
+
 function parseOneContainers(text) {
   const t = str(text).toUpperCase()
   const containers = []
@@ -372,7 +381,7 @@ function parseOneContainers(text) {
     const cbm = parseNumber(tail.match(/([\d.]+)\s*(?:M3|CBM)/i)?.[1])
     containers.push({
       id,
-      seal: [...new Set([...sealTokens(m[2]), ...collectListedSeals(between)])].join(', '),
+      seal: [...new Set([...sealTokens(m[2]), ...oneGapSeals(between)])].join(', '),
       pkgs: parseNumber(m[3]),
       description: descFrom(tail)
         || str(text).match(/SAID TO CONTAIN:\s*([\s\S]{10,160}?)(?=-{10,}|TOTAL |FREIGHT |PAGE:|$)/i)?.[1]?.replace(/\s+/g, ' ').trim()

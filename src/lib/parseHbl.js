@@ -305,6 +305,20 @@ function dashboardFigures(afterId) {
 const FORM_HEADER = /MARKS AND NUMBERS \/ CONTAINER NUMBERS\s*\n\s*\n\s*NO\. OF PKGS\s*\n\s*\n\s*DESCRIPTION OF PACKAGES AND GOODS/i
 const FORM_TOTALS = /\bTOTAL CONTAINERS:[ \t]*\d+/i
 
+// Lo que main ya sacaba del bloque (sealTokens) más las líneas que son solo sellos.
+// "TYPE GRADO 3" no aporta tokens; "FS-36458" sí.
+function listedSealTokens(text) {
+  return [...new Set([...sealTokens(text), ...collectListedSeals(text)])]
+}
+
+function listedSeals(text) {
+  return listedSealTokens(text).join(', ')
+}
+
+function unionSealText(...values) {
+  return [...new Set(values.flatMap((v) => sealTokens(v)))].join(', ')
+}
+
 function formFigures(chunk) {
   const cells = chunk.split(/\n[ \t]*\n/).map((c) => c.trim())
   const figure = (c) => /^\d[\d.,]*$/.test(c || '')
@@ -313,7 +327,7 @@ function formFigures(chunk) {
   if (grossAt < 0) return null
   const description = cells.slice(2, grossAt).join('\n')
   return {
-    seal: collectListedSeals(cells[0].split(/SEALS?:|SELLOS?:/i).slice(1).join('\n')).join(', '),
+    seal: listedSeals(cells[0].split(/SEALS?:|SELLOS?:/i).slice(1).join('\n')),
     pkgs: parseNumber(cells[1]),
     description: str(description),
     netKg: descriptionNet(description),
@@ -347,14 +361,14 @@ function parseContainersFromText(text) {
       const sealSrc = afterId.split(/SEALS?:|SELLOS?:/i).slice(1).join('\n')
         .split(/BAGS OF|MARCAS|TOTAL BAGS|TOTAL PKGS|(?:CONTAINER|CONTENEDOR)\s*:|\bLOTE\b|\bDAE\b/)[0]
       const figures = dashboardFigures(afterId)
-      containers.push({ id, seal: collectListedSeals(sealSrc).join(', '), ...figures })
+      containers.push({ id, seal: listedSeals(sealSrc), ...figures })
       continue
     }
     // "SEALS" puede venir sin dos puntos (SWB de ZIM). Varios "SEAL:" no se quedan en el primero.
     // "CONTAINERS" de la descripción no cierra la lista (sí "CONTAINER:").
     const afterSeals = afterId.split(/SEALS?:|SELLOS?:|(?:^|\n)[ \t]*(?:SEALS?|SELLOS?)[ \t]*(?=\n)/i).slice(1).join('\n')
-    const sealZone = (afterSeals || afterId).split(/BAGS OF|MARCAS|TOTAL BAGS|TOTAL PKGS|(?:CONTAINER|CONTENEDOR)\s*:|\bLOTE\b|\bDAE\b|\b[A-Z]{4}\d{7}\b/)[0]
-    const seals = collectListedSeals(sealZone)
+    const sealZone = (afterSeals || afterId).split(/BAGS OF|MARCAS|TOTAL BAGS|TOTAL PKGS|(?:CONTAINER|CONTENEDOR)\s*:|\bLOTE\b|\bDAE\b|\b[A-Z]{4}\d{7}\b|RECEIVED BY THE CARRIER|SHIPPER'?S LOAD/)[0]
+    const seals = listedSealTokens(sealZone)
     const beforeTotal = afterId.split(/TOTAL BAGS|TOTAL PKGS|TOTAL PACKAGES/)[0]
     const bagHitsNear = [...beforeTotal.matchAll(/(\d{3,4})\s+BAGS\b/gi)]
       .map((m) => parseNumber(m[1]))
@@ -383,7 +397,7 @@ function parseContainersFromText(text) {
       const from = m.index + m[0].length
       const next = hits.find((x) => x.index > m.index && x[1] !== id)
       const zone = cargo.slice(from, next ? next.index : from + 220)
-      const seals = collectListedSeals(zone.split(/BAGS OF|MARCAS|TOTAL BAGS|(?:CONTAINER|CONTENEDOR)\s*:|\bDAE\b/)[0])
+      const seals = listedSealTokens(zone.split(/BAGS OF|MARCAS|TOTAL BAGS|(?:CONTAINER|CONTENEDOR)\s*:|\bDAE\b/)[0])
       containers.push({
         id,
         seal: seals.join(', '),
@@ -837,7 +851,8 @@ function parseHblFromPdfWords(words, fileName, extraText = '') {
     // Por posicion solo si la lista de la columna tiene los mismos contenedores; si no, se cruzan sellos de otro.
     const left = leftContainers.find((x) => x.id === c.id) || (leftContainers.length === containers.length && !leftContainers.some((x) => containers.some((y) => y.id === x.id)) ? leftContainers[i] : null)
     const full = fullContainers.find((x) => x.id === c.id) || fullContainers[i]
-    if (left?.seal) c.seal = left.seal
+    // La columna y el texto corrido se suman: ninguno de los dos puede borrar un sello del otro.
+    if (left?.seal || full?.seal) c.seal = unionSealText(c.seal, left?.seal, full?.seal)
     if (c.pkgs == null) c.pkgs = full?.pkgs ?? left?.pkgs ?? null
     if (!c.description) c.description = full?.description || left?.description || ''
     if (c.netKg == null) c.netKg = full?.netKg ?? left?.netKg ?? null

@@ -84,6 +84,9 @@ function joinSpacedSeal(value) {
   if (!/^[A-Z0-9]+(?: [A-Z0-9]+)+$/.test(s)) return s
   const groups = s.split(' ')
   const compact = groups.join('')
+  if (groups.some((g) => /^[A-Z]{4,}$/.test(g))) return s
+  // "SPS151792 1450" no se pega: 1450 es un conteo de bultos, no parte del sello.
+  if (groups.some((g) => g.length >= 8) && groups.some((g) => /^\d{3,4}$/.test(g))) return s
   if (!groups.some((g) => g.length < 5) || compact.length < 8 || compact.length > 14 || !/\d/.test(compact)) return s
   return compact
 }
@@ -203,13 +206,22 @@ function parseContainers(grid, startRow, endRow) {
     }
 
     if (/^(?:sellos?|seals?):?$/i.test(c0) || /^(?:sellos?|seals?):/i.test(c0)) {
-      const rest = [c0.replace(/^(?:sellos?|seals?):?\s*/i, ''), ...row.slice(1).map(str)]
+      // Solo la columna de sellos. El peso ("24978.00 KN") y el total (100775) van en otras
+      // columnas de la misma fila: no son sellos, y la fila sigue para leer ese peso.
+      const own = c0.replace(/^(?:sellos?|seals?):?\s*/i, '')
+      const extras = row.map(str).filter((s, i) => {
+        if (i === 0 || !s) return false
+        if (i === 3 || i === 8 || i === 9) return false
+        if (/\b(KGS?|KILOS?|K\.?\s*[NB]|CBM|M3|BAGS|PKGS)\b/i.test(s)) return false
+        if (/\d+[.,]\d+/.test(s) || /^\d[\d.,]*$/.test(s)) return false
+        return true
+      })
+      const rest = [own, ...extras]
         .map((part) => joinSpacedSeal(stripLoteLabels(part)))
         .filter(Boolean)
         .join(', ')
       current.seals.push(...sealTokens(rest))
       collectingSeals = true
-      continue
     }
 
     if (!current.pkgs) {

@@ -663,7 +663,7 @@ export function parseSwbFromPdfPages(pages, fileName = '') {
       return {
         ...hit,
         ...c,
-        seal: c.seal || hit.seal || '',
+        seal: [...new Set([...sealTokens(c.seal), ...sealTokens(hit.seal)])].join(', '),
         pkgs: c.pkgs ?? hit.pkgs ?? null,
         netKg: c.netKg ?? hit.netKg ?? null,
         grossKg: c.grossKg ?? hit.grossKg ?? null,
