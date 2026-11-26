@@ -299,10 +299,20 @@ export function hsMatch(a, b) {
   return A === B || A.startsWith(B) || B.startsWith(A)
 }
 
-export function loteCanon(value) {
-  const raw = str(value).toUpperCase()
+// Un trozo de lote partido por un espacio del PDF ("SGE39 02026") es el mismo código.
+// El espacio se quita solo cuando lo que sigue son dígitos: "047 SOMETHING" y
+// "LOTE#123 LOTE#456" no se pegan a la palabra de al lado.
+function loteSource(value) {
+  return str(value).toUpperCase().replace(/([A-Z0-9])\s+(\d+)/g, '$1$2')
+}
+
+function loteToken(raw) {
   const m = raw.match(/LOTE#?\s*([A-Z0-9-]+)/) || raw.match(/\b([A-Z]{2,}\d{4,}|\d+(?:-\d+)?)\b/)
-  return m ? m[1] : canon(value)
+  return m ? m[1] : canon(raw)
+}
+
+export function loteCanon(value) {
+  return loteToken(loteSource(value))
 }
 
 export function lotesMatch(a, b) {
@@ -313,6 +323,31 @@ export function lotesMatch(a, b) {
   const nA = A.split('-')[0].replace(/^0+/, '')
   const nB = B.split('-')[0].replace(/^0+/, '')
   return Boolean(nA) && nA === nB
+}
+
+// Dos trozos de una línea de PDF que casi se tocan son la misma palabra partida
+// (un cambio de fuente). En el SWB de ZIMUGYL811957, "LOTE#SGE39" y "02026" quedan
+// a 0.03pt; un espacio de verdad en estos formularios mide más de 2pt.
+// Sin ancho del trozo se deja el espacio: sellos, pesos y contenedores armados
+// sin geometría no se pegan.
+const TOUCHING_CHUNK_GAP = 1
+
+export function joinPositionedChunks(words) {
+  const sorted = [...(words || [])].sort((a, b) => (Number(a?.x) || 0) - (Number(b?.x) || 0))
+  let text = ''
+  let prev = null
+  for (const w of sorted) {
+    const t = str(w?.str)
+    if (!t) continue
+    if (prev) {
+      const width = Number(prev.width)
+      const gap = Number.isFinite(width) ? (Number(w.x) - (Number(prev.x) + width)) : Infinity
+      if (!(gap <= TOUCHING_CHUNK_GAP)) text += ' '
+    }
+    text += t
+    prev = w
+  }
+  return text.replace(/\s+/g, ' ').trim()
 }
 
 // LOTE#2611102, "LOTE: 2611102", "LOTE 2611102", "LOT NO 2611102", "LOTE Nº 2611102".

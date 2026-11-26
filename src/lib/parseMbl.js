@@ -8,6 +8,7 @@ import {
   findVoyage,
   splitVesselVoyagePort,
   ISO_RE,
+  joinPositionedChunks,
 } from './normalize.js'
 import { detectCarrier } from './carrier.js'
 import { extractDae } from './parseHbl.js'
@@ -123,7 +124,7 @@ function groupLines(words, yTol = 5) {
   return lines.map((l) => ({
     y: l.y,
     x: Math.min(...l.words.map((w) => w.x)),
-    text: l.words.sort((a, b) => a.x - b.x).map((w) => str(w.str)).join(' ').replace(/\s+/g, ' ').trim(),
+    text: joinPositionedChunks(l.words),
   }))
 }
 
@@ -631,11 +632,9 @@ function parseOneFromWords(words) {
   let voyage = ''
   let portLoading = ''
   if (vesLbl) {
-    const line = words
-      .filter((w) => w.y > vesLbl.y + 4 && w.y < vesLbl.y + 22 && w.x < 330)
-      .sort((a, b) => a.x - b.x)
-      .map((w) => str(w.str))
-      .join(' ')
+    const line = joinPositionedChunks(
+      words.filter((w) => w.y > vesLbl.y + 4 && w.y < vesLbl.y + 22 && w.x < 330),
+    )
     const split = splitVesselVoyagePort(line)
     vessel = split.vessel
     voyage = split.voyage
@@ -799,7 +798,7 @@ function coscoMarksFromPages(pages) {
       else rows.push({ y: w.y, words: [w] })
     }
     for (const row of rows) {
-      const line = row.words.sort((a, b) => a.x - b.x).map((w) => str(w.str)).join(' ').replace(/\s+/g, ' ').trim()
+      const line = joinPositionedChunks(row.words)
       if (!line) continue
       if (/^CONTAINER\s*\/\s*SEAL/i.test(line)) continue
       if (STOP.test(line)) break

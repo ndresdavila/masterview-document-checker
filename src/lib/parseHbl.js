@@ -11,6 +11,7 @@ import {
   sealTokens,
   collectListedSeals,
   canon,
+  joinPositionedChunks,
 } from './normalize.js'
 
 // Carrier SWBs (e.g. COSCO) print the booking with the carrier prefix glued on, "COSU6509430830".
@@ -32,12 +33,7 @@ function groupLines(words, yTol = 5) {
   return lines.map((l) => ({
     y: l.y,
     x: Math.min(...l.words.map((w) => w.x)),
-    text: l.words
-      .sort((a, b) => a.x - b.x)
-      .map((w) => str(w.str))
-      .join(' ')
-      .replace(/\s+/g, ' ')
-      .trim(),
+    text: joinPositionedChunks(l.words),
   }))
 }
 
@@ -783,11 +779,7 @@ function parseHblFromPdfWords(words, fileName, extraText = '') {
     const row = words.filter(
       (w) => w.y > vesselHeader.y + 6 && w.y < vesselHeader.y + 28 && w.x < 300,
     )
-    const line = row
-      .sort((a, b) => a.x - b.x)
-      .map((w) => str(w.str))
-      .filter(Boolean)
-      .join(' ')
+    const line = joinPositionedChunks(row)
     const split = splitVesselVoyagePort(line)
     vessel = split.vessel
     voyage = split.voyage
@@ -796,7 +788,7 @@ function parseHblFromPdfWords(words, fileName, extraText = '') {
     // el viaje con dos letras no lo reconoce splitVesselVoyagePort. Solo si no salio viaje.
     const voyWord = row.find((w) => w.x >= 100 && w.x < 185 && /^\d{3,4}[A-Z]{1,2}$/.test(str(w.str)))
     if (!voyage && voyWord) {
-      const col = (x0, x1) => row.filter((w) => w.x >= x0 && w.x < x1).map((w) => str(w.str)).filter(Boolean).join(' ').trim()
+      const col = (x0, x1) => joinPositionedChunks(row.filter((w) => w.x >= x0 && w.x < x1))
       vessel = col(0, voyWord.x)
       voyage = str(voyWord.str)
       portLoading = col(185, 300) || portLoading

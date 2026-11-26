@@ -20,6 +20,7 @@ async function extractPdfPages(buffer) {
         str: it.str,
         x: it.transform[4],
         y: viewport.height - it.transform[5],
+        width: it.width,
       }))
     pages.push({
       words,
